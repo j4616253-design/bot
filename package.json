@@ -1,0 +1,26 @@
+{
+  "name": "sparx-maths-autocompleter",
+  "version": "1.0.0",
+  "description": "Automated Sparx Maths homework solver using Playwright + Llama 4 Maverick via OpenRouter",
+  "main": "automation.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node automation.js",
+    "install-all": "npm install && npx playwright install chromium"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@playwright/test": "^1.48.0",
+    "discord.js": "^14.27.0",
+    "dotenv": "^16.6.1",
+    "groq": "^6.8.0",
+    "groq-sdk": "^1.4.1",
+    "openai": "^4.90.0",
+    "playwright": "^1.48.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "",
+  "license": "MIT"
+}
