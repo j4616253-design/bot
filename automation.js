@@ -16,9 +16,6 @@ async function loginAndGetHomeworks(schoolName, username, password, subject = 'm
 
   const list = [];
 
-  // ==============================================
-  // ✅ READER / SCIENCE PATH — FULLY PRESERVED
-  // ==============================================
   if (subject !== 'maths') {
     console.log(`ℹ️ Reader/Science requested. Bypassing browser launch and using manual label data configuration...`);
     list.push({
@@ -33,11 +30,8 @@ async function loginAndGetHomeworks(schoolName, username, password, subject = 'm
     };
   }
 
-  // ==============================================
-  // 🚨 MATHS PATH — Cleaned scraper + NOT STARTED FIX
-  // ==============================================
   const browser = await chromium.launch({
-    headless: true, // ✅ KEPT AS ORIGINAL — no window
+    headless: true, // ✅ Kept headless exactly as you wanted
     slowMo: 120,
     args: ['--no-sandbox']
   });
@@ -133,32 +127,18 @@ async function loginAndGetHomeworks(schoolName, username, password, subject = 'm
         if (!text) return;
 
         const upperText = text.toUpperCase();
-        // ✅ FIX: Handle NOT STARTED → force 0%
-        if (upperText.includes('NOT STARTED')) {
-          const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-          let title = '';
-          for (const line of lines) {
-            if (
-              line.includes('XP') ||
-              line.includes('box-shadow') ||
-              line.includes('rgba') ||
-              /^\d+$/.test(line) ||
-              line.length < 8
-            ) continue;
-            if (/due\s+/i.test(line) && /\d+|monday|tuesday|wednesday|thursday|friday|saturday|sunday|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i.test(line)) {
-              title = line + ' — NOT STARTED';
-              break;
-            }
-          }
-          if (title && !found.some(f => f.due === title)) {
-            found.push({ due: title, percent: 0 });
-          }
-          return; // Skip normal % extraction for these
-        }
+        const isNotStarted = upperText.includes('NOT STARTED');
 
-        if (!text.includes('%')) return;
-        const pctMatch = text.match(/(\d{1,3})%/);
-        const percent = pctMatch ? parseInt(pctMatch[1]) : 0;
+        // Get percentage — force 0% if NOT STARTED
+        let percent = 0;
+        if (isNotStarted) {
+          percent = 0; // ✅ Force 0%
+        } else if (text.includes('%')) {
+          const pctMatch = text.match(/(\d{1,3})%/);
+          percent = pctMatch ? parseInt(pctMatch[1]) : 0;
+        } else {
+          return; // Skip items with no % and no NOT STARTED
+        }
 
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
         let title = '';
@@ -172,9 +152,11 @@ async function loginAndGetHomeworks(schoolName, username, password, subject = 'm
           ) continue;
           if (/due\s+/i.test(line) && /\d+|monday|tuesday|wednesday|thursday|friday|saturday|sunday|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i.test(line)) {
             title = line;
+            if (isNotStarted) title += ' — NOT STARTED';
             break;
           }
         }
+
         if (title && !found.some(f => f.due === title)) {
           found.push({ due: title, percent });
         }
