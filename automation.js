@@ -8,7 +8,7 @@ async function loginAndGetHomeworks(schoolName, username, password, subject = 'm
   console.log(`🚀 Portal Launcher: Sparx ${subject.toUpperCase()}`);
   if (subject === 'maths') {
     console.log(`⏱️ Flow parameters: ${minTime}s – ${maxTime}s/question`);
-    console.log(`👁️ RUNNING IN VISIBLE MODE — watch the browser!`);
+    console.log(`🔒 Running in INVISIBLE mode`);
   } else {
     console.log(`📅 Manual Entry Mode: Forwarding date context "${customDate}" straight to solver...`);
   }
@@ -16,9 +16,15 @@ async function loginAndGetHomeworks(schoolName, username, password, subject = 'm
 
   const list = [];
 
+  // ==============================================
+  // ✅ READER / SCIENCE PATH — FULLY PRESERVED
+  // ==============================================
   if (subject !== 'maths') {
-    console.log(`ℹ️ Reader/Science requested. Bypassing browser launch...`);
-    list.push({ due: customDate || 'Custom Assigned Date Task', percent: 0 });
+    console.log(`ℹ️ Reader/Science requested. Bypassing browser launch and using manual label data configuration...`);
+    list.push({
+      due: customDate || 'Custom Assigned Date Task',
+      percent: 0
+    });
     return {
       list,
       runSolver: async (index, updateDiscord) => {
@@ -27,37 +33,39 @@ async function loginAndGetHomeworks(schoolName, username, password, subject = 'm
     };
   }
 
-  let browser;
+  // ==============================================
+  // 🚨 MATHS PATH — Cleaned scraper + NOT STARTED FIX
+  // ==============================================
+  const browser = await chromium.launch({
+    headless: true, // ✅ KEPT AS ORIGINAL — no window
+    slowMo: 120,
+    args: ['--no-sandbox']
+  });
+
+  const ctx = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    locale: 'en-GB',
+    timezoneId: 'Europe/London',
+    viewport: { width: 1280, height: 800 }
+  });
+
+  const page = await ctx.newPage();
+  page.setDefaultTimeout(45000);
+
+  const acceptCookies = async () => {
+    for (const t of [/Accept all/i, /Accept cookies/i, /I accept/i, /Allow all/i, /OK/i]) {
+      try {
+        const b = page.getByRole('button', { name: t });
+        if (await b.isVisible({ timeout: 2000 })) {
+          await b.click({ force: true });
+          await page.waitForTimeout(800);
+          break;
+        }
+      } catch {}
+    }
+  };
+
   try {
-    browser = await chromium.launch({
-      headless: false, // ✅ BROWSER WINDOW WILL APPEAR!
-      slowMo: 120,
-      args: ['--no-sandbox']
-    });
-
-    const ctx = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      locale: 'en-GB',
-      timezoneId: 'Europe/London',
-      viewport: { width: 1280, height: 800 }
-    });
-
-    const page = await ctx.newPage();
-    page.setDefaultTimeout(45000);
-
-    const acceptCookies = async () => {
-      for (const t of [/Accept all/i, /Accept cookies/i, /I accept/i, /Allow all/i, /OK/i]) {
-        try {
-          const b = page.getByRole('button', { name: t });
-          if (await b.isVisible({ timeout: 2000 })) {
-            await b.click({ force: true });
-            await page.waitForTimeout(800);
-            break;
-          }
-        } catch {}
-      }
-    };
-
     await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(1500);
     await acceptCookies();
@@ -125,21 +133,27 @@ async function loginAndGetHomeworks(schoolName, username, password, subject = 'm
         if (!text) return;
 
         const upperText = text.toUpperCase();
-        // ✅ THE FIX: if NOT STARTED → force 0%
+        // ✅ FIX: Handle NOT STARTED → force 0%
         if (upperText.includes('NOT STARTED')) {
           const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
           let title = '';
           for (const line of lines) {
-            if (line.includes('XP') || line.length < 8) continue;
+            if (
+              line.includes('XP') ||
+              line.includes('box-shadow') ||
+              line.includes('rgba') ||
+              /^\d+$/.test(line) ||
+              line.length < 8
+            ) continue;
             if (/due\s+/i.test(line) && /\d+|monday|tuesday|wednesday|thursday|friday|saturday|sunday|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i.test(line)) {
-              title = line;
+              title = line + ' — NOT STARTED';
               break;
             }
           }
           if (title && !found.some(f => f.due === title)) {
-            found.push({ due: title + ' — NOT STARTED', percent: 0 });
+            found.push({ due: title, percent: 0 });
           }
-          return; // skip normal % extraction for these
+          return; // Skip normal % extraction for these
         }
 
         if (!text.includes('%')) return;
@@ -149,7 +163,13 @@ async function loginAndGetHomeworks(schoolName, username, password, subject = 'm
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
         let title = '';
         for (const line of lines) {
-          if (line.includes('XP') || line.length < 8) continue;
+          if (
+            line.includes('XP') ||
+            line.includes('box-shadow') ||
+            line.includes('rgba') ||
+            /^\d+$/.test(line) ||
+            line.length < 8
+          ) continue;
           if (/due\s+/i.test(line) && /\d+|monday|tuesday|wednesday|thursday|friday|saturday|sunday|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i.test(line)) {
             title = line;
             break;
@@ -165,7 +185,9 @@ async function loginAndGetHomeworks(schoolName, username, password, subject = 'm
     list.push(...results);
 
     if (list.length === 0) {
-      console.log('⚠️ No homework found — check in the browser window!');
+      console.log('⚠️ No homework found — dumping page content to debug:');
+      const pageText = await page.innerText('body');
+      console.log(pageText.slice(0, 2000));
       list.push({ due: 'No Tasks Found', percent: 0 });
     }
 
@@ -179,20 +201,17 @@ async function loginAndGetHomeworks(schoolName, username, password, subject = 'm
       runSolver: async (index, updateDiscord) => {
         if (list[index].due.includes('No Tasks Found')) {
           await updateDiscord('❌ No homework found. Check your login details.');
-          await browser?.close();
+          await browser.close();
           return;
         }
         await solveSelectedHomework(page, list[index], parseInt(minTime), parseInt(maxTime), updateDiscord, subject);
-        await browser?.close();
+        await browser.close();
       }
     };
   } catch (err) {
     console.error('\n❌ ERROR:', err.message);
-    console.log('👀 Check the browser window to see where it stopped!');
+    await browser.close();
     throw err;
-  } finally {
-    // Keep browser open longer so you can see what happened
-    // await browser?.close(); // Uncomment to auto-close
   }
 }
 
