@@ -96,6 +96,11 @@ client.once('ready', async () => {
         '📖 Sparx Reader\n' +
         '🔬 Sparx Science\n' +
         '🧠 Seneca\n' +
+        '🎓 Educake\n' +
+        '📊 Century Tech\n' +
+        '🧪 Tassomai\n' +
+        '🪨 Bedrock\n' +
+        '🔬 Dr Frost\n' +
         '🎸 Times Table Rockstars'
       )
       .setFooter({ text: 'JordanAI' });
@@ -138,6 +143,11 @@ client.on('interactionCreate', async interaction => {
           { label: 'Sparx Reader', value: 'Sparx Reader', emoji: '📖' },
           { label: 'Sparx Science', value: 'Sparx Science', emoji: '🔬' },
           { label: 'Seneca', value: 'Seneca', emoji: '🧠' },
+          { label: 'Educake', value: 'Educake', emoji: '🎓' },
+          { label: 'Century Tech', value: 'Century Tech', emoji: '📊' },
+          { label: 'Tassomai', value: 'Tassomai', emoji: '🧪' },
+          { label: 'Bedrock', value: 'Bedrock', emoji: '🪨' },
+          { label: 'Dr Frost', value: 'Dr Frost', emoji: '🔬' },
           { label: 'Times Table Rockstars', value: 'Times Table Rockstars', emoji: '🎸' }
         );
       return interaction.reply({
@@ -155,13 +165,16 @@ client.on('interactionCreate', async interaction => {
       const modal = new ModalBuilder()
         .setCustomId(`request_${interaction.user.id}`)
         .setTitle(`Request: ${platform}`);
+      
       modal.addComponents(
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('school')
             .setLabel('🏫 School')
-            .setPlaceholder('Your school name here')
+            .setPlaceholder('Your school name')
             .setStyle(TextInputStyle.Short)
+            .setMinLength(2)
+            .setMaxLength(100)
             .setRequired(true)
         ),
         new ActionRowBuilder().addComponents(
@@ -170,6 +183,8 @@ client.on('interactionCreate', async interaction => {
             .setLabel('👤 Username')
             .setPlaceholder('your login username')
             .setStyle(TextInputStyle.Short)
+            .setMinLength(1)
+            .setMaxLength(100)
             .setRequired(true)
         ),
         new ActionRowBuilder().addComponents(
@@ -178,17 +193,22 @@ client.on('interactionCreate', async interaction => {
             .setLabel('🔑 Password')
             .setPlaceholder('your password')
             .setStyle(TextInputStyle.Short)
+            .setMinLength(1)
+            .setMaxLength(100)
             .setRequired(true)
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('due_date')
-            .setLabel('What date would you like the homework completed?')
+            .setLabel('What date would you like it completed?')
             .setPlaceholder('e.g. 29 Oct, Monday, 30/10')
             .setStyle(TextInputStyle.Short)
+            .setMinLength(1)
+            .setMaxLength(50)
             .setRequired(true)
         )
       );
+      
       pendingPlatforms.set(interaction.user.id, platform);
       return interaction.showModal(modal);
     }
@@ -197,6 +217,7 @@ client.on('interactionCreate', async interaction => {
       if (!interaction.guild || !hasAccess(interaction.member)) {
         return interaction.reply({ content: '🚫 Access denied.', ephemeral: true });
       }
+      
       await interaction.deferReply({ ephemeral: true });
 
       const platform = pendingPlatforms.get(interaction.user.id);
@@ -205,11 +226,14 @@ client.on('interactionCreate', async interaction => {
       }
       pendingPlatforms.delete(interaction.user.id);
 
-      // Get ALL fields explicitly — no typos
-      const school = interaction.fields.getTextInputValue('school');
-      const username = interaction.fields.getTextInputValue('username');
-      const password = interaction.fields.getTextInputValue('password');
-      const dueDate = interaction.fields.getTextInputValue('due_date');
+      const school = (interaction.fields.getTextInputValue('school') || '').trim();
+      const username = (interaction.fields.getTextInputValue('username') || '').trim();
+      const password = (interaction.fields.getTextInputValue('password') || '').trim();
+      const dueDate = (interaction.fields.getTextInputValue('due_date') || '').trim();
+
+      if (!school || !username || !password || !dueDate) {
+        return interaction.editReply('❌ Please fill in all fields.');
+      }
 
       const request = {
         userId: interaction.user.id,
@@ -242,21 +266,19 @@ client.on('interactionCreate', async interaction => {
         const admin = await client.users.fetch(YOUR_ADMIN_ID);
         await admin.send({ embeds: [embed] });
       } catch (dmError) {
-        console.error('❌ Admin DM failed:', dmError.message);
+        console.error('❌ Admin DM failed:', dmError);
         return interaction.editReply(
-          '⚠️ Request saved but could not message admin. Please ask them to check their DMs.'
+          '⚠️ Request saved but could not message admin. Please ask them to enable DMs.'
         );
       }
 
       return interaction.editReply('✅ Your homework request has been sent!');
     }
   } catch (error) {
-    console.error('❌ FULL ERROR:', error); // <-- Shows exact error in Render logs
+    console.error('❌ Error:', error);
+    const msg = error.message || 'Something went wrong';
     if (interaction.isRepliable()) {
-      const response = {
-        content: `❌ Error: ${error.message || 'Something went wrong'}. Please try again.`,
-        ephemeral: true
-      };
+      const response = { content: `❌ ${msg}. Please try again.`, ephemeral: true };
       if (interaction.deferred || interaction.replied) {
         await interaction.followUp(response).catch(() => {});
       } else {
@@ -311,8 +333,8 @@ client.on('messageCreate', async message => {
     await user.send({ embeds: [new EmbedBuilder().setTitle(title).setDescription(text).setColor('#5865F2').setTimestamp()] });
     return message.reply('✅ Update sent.');
   } catch (error) {
-    console.error('❌ Admin command error:', error);
-    return message.reply('❌ Could not DM the requester. They may have DMs disabled.');
+    console.error('❌ Admin error:', error);
+    return message.reply('❌ Could not DM user. They may have DMs disabled.');
   }
 });
 
@@ -328,7 +350,7 @@ http.createServer((req, res) => {
 
 // ─── LOGIN ───
 if (!process.env.DISCORD_TOKEN) {
-  console.error('❌ DISCORD_TOKEN missing from .env');
+  console.error('❌ DISCORD_TOKEN missing');
   process.exit(1);
 }
 client.login(process.env.DISCORD_TOKEN).catch(err => {
