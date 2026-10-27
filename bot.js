@@ -18,12 +18,7 @@ const YOUR_ADMIN_ID = '1433073407075024981';
 const MAIN_CHANNEL_ID = '1529910322184454296';
 const FAQ_CHANNEL_ID = '1517285523042078730';
 
-const ALLOWED_ROLES = [
-  'Admin',
-  'Lifetime',
-  'Monthly',
-  'Free Trial'
-];
+const ALLOWED_ROLES = ['Admin', 'Lifetime', 'Monthly', 'Free Trial'];
 
 const client = new Client({
   intents: [
@@ -43,10 +38,7 @@ function makeBar(percent) {
 }
 
 function makeTaskBreakdown(percent) {
-  const tasks = [
-    'Task 1', 'Task 2', 'Task 3', 'Task 4',
-    'Task 5', 'Task 6', 'Flashcards'
-  ];
+  const tasks = ['Task 1', 'Task 2', 'Task 3', 'Task 4', 'Task 5', 'Task 6', 'Flashcards'];
   const count = Math.round(percent / 100 * tasks.length);
   return tasks.map((task, index) => {
     if (percent === 100) return `✅ ${task}`;
@@ -74,18 +66,16 @@ function progressEmbed(request, percent) {
 function hasAccess(member) {
   if (!member) return false;
   if (member.id === YOUR_ADMIN_ID) return true;
-  return member?.roles?.cache?.some(role =>
-    ALLOWED_ROLES.includes(role.name)
-  ) ?? false;
+  return member?.roles?.cache?.some(role => ALLOWED_ROLES.includes(role.name)) ?? false;
 }
 
 // ─── WELCOME PANEL ───
 client.once('ready', async () => {
-  console.log(`Logged in as ${client.user.tag}`);
+  console.log(`✅ Logged in as ${client.user.tag}`);
   try {
     const channel = await client.channels.fetch(MAIN_CHANNEL_ID);
     if (!channel?.isTextBased() || !channel.guild) {
-      console.log('Main channel not found.');
+      console.log('⚠️ Main channel not found.');
       return;
     }
     const recent = await channel.messages.fetch({ limit: 20 });
@@ -94,7 +84,7 @@ client.once('ready', async () => {
       msg.embeds[0]?.title === 'Welcome to JordanAI'
     );
     if (exists) {
-      console.log('Welcome panel already exists.');
+      console.log('ℹ️ Welcome panel already exists.');
       return;
     }
     const panel = new EmbedBuilder()
@@ -124,9 +114,9 @@ client.once('ready', async () => {
         )
       ]
     });
-    console.log('Welcome panel posted.');
+    console.log('✅ Welcome panel posted.');
   } catch (error) {
-    console.error('Panel error:', error);
+    console.error('❌ Panel error:', error);
   }
 });
 
@@ -208,21 +198,30 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply({ content: '🚫 Access denied.', ephemeral: true });
       }
       await interaction.deferReply({ ephemeral: true });
+
       const platform = pendingPlatforms.get(interaction.user.id);
       if (!platform) {
         return interaction.editReply('❌ Your form expired. Please start again.');
       }
       pendingPlatforms.delete(interaction.user.id);
+
+      // Get ALL fields explicitly — no typos
+      const school = interaction.fields.getTextInputValue('school');
+      const username = interaction.fields.getTextInputValue('username');
+      const password = interaction.fields.getTextInputValue('password');
+      const dueDate = interaction.fields.getTextInputValue('due_date');
+
       const request = {
         userId: interaction.user.id,
         userTag: interaction.user.tag,
         platform,
-        school: interaction.fields.getTextInputValue('school'),
-        username: interaction.fields.getTextInputValue('username'),
-        password: interaction.fields.getTextInputValue('password'),
-        dueDate: interaction.fields.getTextInputValue('due_date'),
+        school,
+        username,
+        password,
+        dueDate,
         percent: 0
       };
+
       requests.set(request.userId, request);
       lastRequesterId = request.userId;
 
@@ -242,16 +241,22 @@ client.on('interactionCreate', async interaction => {
       try {
         const admin = await client.users.fetch(YOUR_ADMIN_ID);
         await admin.send({ embeds: [embed] });
-      } catch (error) {
-        console.error('Admin DM failed:', error);
-        return interaction.editReply('⚠️ Could not DM the admin. Please contact them directly.');
+      } catch (dmError) {
+        console.error('❌ Admin DM failed:', dmError.message);
+        return interaction.editReply(
+          '⚠️ Request saved but could not message admin. Please ask them to check their DMs.'
+        );
       }
+
       return interaction.editReply('✅ Your homework request has been sent!');
     }
   } catch (error) {
-    console.error('Interaction error:', error);
+    console.error('❌ FULL ERROR:', error); // <-- Shows exact error in Render logs
     if (interaction.isRepliable()) {
-      const response = { content: '❌ Something went wrong. Please try again.', ephemeral: true };
+      const response = {
+        content: `❌ Error: ${error.message || 'Something went wrong'}. Please try again.`,
+        ephemeral: true
+      };
       if (interaction.deferred || interaction.replied) {
         await interaction.followUp(response).catch(() => {});
       } else {
@@ -306,29 +311,27 @@ client.on('messageCreate', async message => {
     await user.send({ embeds: [new EmbedBuilder().setTitle(title).setDescription(text).setColor('#5865F2').setTimestamp()] });
     return message.reply('✅ Update sent.');
   } catch (error) {
-    console.error('Admin command error:', error);
+    console.error('❌ Admin command error:', error);
     return message.reply('❌ Could not DM the requester. They may have DMs disabled.');
   }
 });
 
-// ─── RENDER PORT DETECTION — HEALTH SERVER ───
+// ─── RENDER HEALTH SERVER ───
 const http = require('http');
 const PORT = process.env.PORT || 10000;
-
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('JordanAI bot is running ✅');
 }).listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Health server listening on port ${PORT}`);
+  console.log(`✅ Health server on port ${PORT}`);
 });
 
 // ─── LOGIN ───
 if (!process.env.DISCORD_TOKEN) {
-  console.error('❌ DISCORD_TOKEN is missing from .env');
+  console.error('❌ DISCORD_TOKEN missing from .env');
   process.exit(1);
 }
-
-client.login(process.env.DISCORD_TOKEN).catch(error => {
-  console.error('❌ Discord login failed:', error);
+client.login(process.env.DISCORD_TOKEN).catch(err => {
+  console.error('❌ Login failed:', err);
   process.exit(1);
 });
