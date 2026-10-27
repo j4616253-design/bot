@@ -1,7 +1,7 @@
 const {
   Client,
   GatewayIntentBits,
-  Partials,  // ✅ Added — critical for DMs
+  Partials,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -24,30 +24,58 @@ const ALLOWED_ROLES = ['Admin', 'Lifetime', 'Monthly', 'Free Trial'];
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,    // ✅ Explicit
-    GatewayIntentBits.DirectMessages,   // ✅ Explicit
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent
   ],
-  partials: [Partials.Channel]  // ✅ Lets bot see DM channels properly
+  partials: [Partials.Channel]
 });
 
 const requests = new Map();
 const pendingPlatforms = new Map();
 let lastRequesterId = null;
 
-// ─── PROGRESS BAR ───
+// ─══════════════════════════════════════════─
+// 🎨 YOUR CUSTOM PROGRESS BAR — ALL SET!
+// ─══════════════════════════════════════════─
+const BAR = {
+  leftFull:   '<:lb2g:1564644631872929874>',   // < filled
+  leftEmpty:  '<:lbg:1564644630526435539>',    // < empty
+  midFull:    '<:lg:1564644635433771169>',     // middle filled
+  midEmpty:   '<:l2g:1564644629054230608>',    // middle empty
+  rightFull:  '<:lb4g:1564644634267750491>',   // > filled
+  rightEmpty: '<:lb3g:1564644633072504993>',   // > empty
+  segments: 5,    // number of middle blocks — change to make longer/shorter
+  showPercent: true
+};
+
 function makeBar(percent) {
-  const filled = Math.round(percent / 5);
-  return '🟩'.repeat(filled) + '⬜'.repeat(20 - filled);
+  const filledTotal = Math.round((percent / 100) * BAR.segments);
+  let bar = '';
+
+  // Left cap
+  bar += filledTotal > 0 ? BAR.leftFull : BAR.leftEmpty;
+
+  // Middle segments
+  for (let i = 1; i <= BAR.segments; i++) {
+    bar += i <= filledTotal ? BAR.midFull : BAR.midEmpty;
+  }
+
+  // Right cap
+  bar += percent >= 100 ? BAR.rightFull : BAR.rightEmpty;
+
+  // Percentage label
+  if (BAR.showPercent) bar += `  **${percent}%**`;
+
+  return bar;
 }
 
 function makeTaskBreakdown(percent) {
   const tasks = ['Task 1', 'Task 2', 'Task 3', 'Task 4', 'Task 5', 'Task 6', 'Flashcards'];
-  const count = Math.round(percent / 100 * tasks.length);
-  return tasks.map((task, index) => {
-    if (percent === 100) return `✅ ${task}`;
-    return index < count ? `🟦 ${task}` : `⬜ ${task}`;
-  }).join('\n');
+  const done = Math.round((percent / 100) * tasks.length);
+  return tasks.map((task, i) =>
+    percent === 100 ? `✅ ${task}` : (i < done ? `🟦 ${task}` : `⬜ ${task}`)
+  ).join('\n');
 }
 
 function progressEmbed(request, percent) {
@@ -56,16 +84,16 @@ function progressEmbed(request, percent) {
     .setColor(percent === 100 ? '#57F287' : '#5865F2')
     .setDescription(
       `**Platform:** ${request.platform}\n` +
-      `**Homework Due Date:** ${request.dueDate}\n` +
-      `**Progress:** ${percent}%\n\n` +
+      `**Homework Due Date:** ${request.dueDate}\n\n` +
       `${makeBar(percent)}\n\n` +
-      `**Illustrative task breakdown**\n` +
-      `${makeTaskBreakdown(percent)}\n\n` +
-      '_Progress is manually updated and does not verify completed work._'
+      `**Task Breakdown**\n${makeTaskBreakdown(percent)}\n\n` +
+      '_Progress is manually updated._'
     )
     .setFooter({ text: 'JordanAI' })
     .setTimestamp();
 }
+
+// ─── REST OF BOT CODE ───
 
 function hasAccess(member) {
   if (!member) return false;
@@ -73,86 +101,60 @@ function hasAccess(member) {
   return member?.roles?.cache?.some(role => ALLOWED_ROLES.includes(role.name)) ?? false;
 }
 
-// ─── WELCOME PANEL ───
 client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   try {
     const channel = await client.channels.fetch(MAIN_CHANNEL_ID);
-    if (!channel?.isTextBased() || !channel.guild) {
-      console.log('⚠️ Main channel not found.');
-      return;
-    }
+    if (!channel?.isTextBased() || !channel.guild) return console.log('⚠️ Channel not found');
+    
     const recent = await channel.messages.fetch({ limit: 20 });
-    const exists = recent.some(msg =>
-      msg.author.id === client.user.id &&
-      msg.embeds[0]?.title === '✨ Welcome to JordanAI'
+    const exists = recent.some(msg => 
+      msg.author.id === client.user.id && msg.embeds[0]?.title === '✨ Welcome to JordanAI'
     );
-    if (exists) {
-      console.log('ℹ️ Welcome panel already exists.');
-      return;
-    }
+    if (exists) return console.log('ℹ️ Panel exists');
 
     const panel = new EmbedBuilder()
       .setTitle('✨ Welcome to JordanAI')
       .setColor('#5865F2')
       .setDescription(
         `**Your gateway to personalised AI tutoring assistance.**\n` +
-        `**Our verified helpers are available to support you across multiple platforms.**\n\n` +
+        `**Our verified helpers are available to support you.**\n\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `📚 **Available Platforms**\n` +
+        `📚 **Platforms**\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `📐 Sparx Maths        📖 Sparx Reader\n` +
-        `🔬 Sparx Science      🧠 Seneca\n` +
-        `🎓 Educake            📊 Century Tech\n` +
-        `🧪 Tassomai           🪨 Bedrock\n` +
-        `🔬 Dr Frost           🎸 Times Table Rockstars\n\n` +
+        `📐 Sparx Maths    📖 Sparx Reader\n` +
+        `🔬 Sparx Science  🧠 Seneca\n` +
+        `🎓 Educake        📊 Century Tech\n` +
+        `🧪 Tassomai       🪨 Bedrock\n` +
+        `🔬 Dr Frost       🎸 Times Table Rockstars\n\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `📝 **What We Offer**\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `✅ **Personalised help** for all your homework questions\n` +
-        `✅ **Real-time updates** on your task progress\n` +
-        `✅ **Solutions** for even the most challenging work\n` +
-        `✅ **Secure & confidential** — your details stay private\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `⚠️ **Enable DMs:** User Settings → Privacy & Safety → Allow DMs from server members\n` +
-        `Press the button below to submit your request 🚀`
+        `⚠️ Enable DMs in Privacy & Safety to receive updates!\n` +
+        `Press below to get started 🚀`
       )
-      .setFooter({ text: 'JordanAI • Your study support partner' });
+      .setFooter({ text: 'JordanAI' });
 
     await channel.send({
       embeds: [panel],
       components: [
         new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId('startRequest')
-            .setLabel('📩 Submit Your Request')
-            .setStyle(ButtonStyle.Primary),
-          new ButtonBuilder()
-            .setLabel('📋 FAQ')
-            .setStyle(ButtonStyle.Link)
-            .setURL(`https://discord.com/channels/${channel.guild.id}/${FAQ_CHANNEL_ID}`)
+          new ButtonBuilder().setCustomId('startRequest').setLabel('📩 Submit Request').setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setLabel('📋 FAQ').setStyle(ButtonStyle.Link).setURL(`https://discord.com/channels/${channel.guild.id}/${FAQ_CHANNEL_ID}`)
         )
       ]
     });
-    console.log('✅ Welcome panel posted.');
-  } catch (error) {
-    console.error('❌ Panel error:', error);
-  }
+    console.log('✅ Panel posted');
+  } catch (e) { console.error('❌ Panel error:', e); }
 });
 
-// ─── INTERACTION HANDLER ───
 client.on('interactionCreate', async interaction => {
   try {
     if (interaction.isButton() && interaction.customId === 'startRequest') {
       if (!interaction.guild || !hasAccess(interaction.member)) {
-        return interaction.reply({
-          content: '🚫 You do not have permission to submit requests.',
-          ephemeral: true
-        });
+        return interaction.reply({ content: '🚫 No permission.', ephemeral: true });
       }
       const menu = new StringSelectMenuBuilder()
         .setCustomId('selectPlatform')
-        .setPlaceholder('Choose a platform')
+        .setPlaceholder('Choose platform')
         .addOptions(
           { label: 'Sparx Maths', value: 'Sparx Maths', emoji: '📐' },
           { label: 'Sparx Reader', value: 'Sparx Reader', emoji: '📖' },
@@ -165,99 +167,58 @@ client.on('interactionCreate', async interaction => {
           { label: 'Dr Frost', value: 'Dr Frost', emoji: '🔬' },
           { label: 'Times Table Rockstars', value: 'Times Table Rockstars', emoji: '🎸' }
         );
-      return interaction.reply({
-        content: '👋 Choose your platform:',
-        components: [new ActionRowBuilder().addComponents(menu)],
-        ephemeral: true
-      });
+      return interaction.reply({ content: '👋 Pick your platform:', components: [new ActionRowBuilder().addComponents(menu)], ephemeral: true });
     }
 
     if (interaction.isStringSelectMenu() && interaction.customId === 'selectPlatform') {
       if (!interaction.guild || !hasAccess(interaction.member)) {
-        return interaction.reply({ content: '🚫 Access denied.', ephemeral: true });
+        return interaction.reply({ content: '🚫 Denied.', ephemeral: true });
       }
       const platform = interaction.values[0];
       const modal = new ModalBuilder()
         .setCustomId(`request_${interaction.user.id}`)
-        .setTitle(`Request: ${platform}`);
-      
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('school')
-            .setLabel('🏫 School')
-            .setPlaceholder('Your school name')
-            .setStyle(TextInputStyle.Short)
-            .setMinLength(2)
-            .setMaxLength(100)
-            .setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('username')
-            .setLabel('👤 Username')
-            .setPlaceholder('your login username')
-            .setStyle(TextInputStyle.Short)
-            .setMinLength(1)
-            .setMaxLength(100)
-            .setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('password')
-            .setLabel('🔑 Password')
-            .setPlaceholder('your password')
-            .setStyle(TextInputStyle.Short)
-            .setMinLength(1)
-            .setMaxLength(100)
-            .setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('due_date')
-            .setLabel('What date would you like it completed?')
-            .setPlaceholder('e.g. 29 Oct, Monday, 30/10')
-            .setStyle(TextInputStyle.Short)
-            .setMinLength(1)
-            .setMaxLength(50)
-            .setRequired(true)
-        )
-      );
-      
+        .setTitle(`Request: ${platform}`)
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('school').setLabel('🏫 School').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('username').setLabel('👤 Username').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('password').setLabel('🔑 Password').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('due_date').setLabel('Due date').setStyle(TextInputStyle.Short).setMaxLength(50).setRequired(true)
+          )
+        );
       pendingPlatforms.set(interaction.user.id, platform);
       return interaction.showModal(modal);
     }
 
     if (interaction.type === InteractionType.ModalSubmit && interaction.customId.startsWith('request_')) {
       if (!interaction.guild || !hasAccess(interaction.member)) {
-        return interaction.reply({ content: '🚫 Access denied.', ephemeral: true });
+        return interaction.reply({ content: '🚫 Denied.', ephemeral: true });
       }
-      
       await interaction.deferReply({ ephemeral: true });
 
       const platform = pendingPlatforms.get(interaction.user.id);
-      if (!platform) {
-        return interaction.editReply('❌ Your form expired. Please start again.');
-      }
+      if (!platform) return interaction.editReply('❌ Form expired. Start again.');
       pendingPlatforms.delete(interaction.user.id);
 
-      const school = (interaction.fields.getTextInputValue('school') || '').trim();
-      const username = (interaction.fields.getTextInputValue('username') || '').trim();
-      const password = (interaction.fields.getTextInputValue('password') || '').trim();
-      const dueDate = (interaction.fields.getTextInputValue('due_date') || '').trim();
+      const school = interaction.fields.getTextInputValue('school').trim();
+      const username = interaction.fields.getTextInputValue('username').trim();
+      const password = interaction.fields.getTextInputValue('password').trim();
+      const dueDate = interaction.fields.getTextInputValue('due_date').trim();
 
       if (!school || !username || !password || !dueDate) {
-        return interaction.editReply('❌ Please fill in all fields.');
+        return interaction.editReply('❌ Fill all fields.');
       }
 
       const request = {
         userId: interaction.user.id,
         userTag: interaction.user.tag,
-        platform,
-        school,
-        username,
-        password,
-        dueDate,
+        platform, school, username, password, dueDate,
         percent: 0
       };
 
@@ -280,48 +241,37 @@ client.on('interactionCreate', async interaction => {
       try {
         const admin = await client.users.fetch(YOUR_ADMIN_ID);
         await admin.send({ embeds: [embed] });
-      } catch (dmError) {
-        console.error('❌ Admin DM failed:', dmError);
+      } catch (e) {
+        console.error('❌ Admin DM failed:', e);
       }
 
       return interaction.editReply(
-        '✅ Your homework request has been sent!\n\n' +
-        '⚠️ Make sure DMs are ON: User Settings → Privacy & Safety → ' +
-        'Enable "Allow Direct Messages from Server Members"'
+        '✅ Request sent!\n\n⚠️ Enable DMs: User Settings → Privacy & Safety → Allow DMs from server members'
       );
     }
-  } catch (error) {
-    console.error('❌ Error:', error);
-    const msg = error.message || 'Something went wrong';
+  } catch (e) {
+    console.error('❌ Error:', e);
     if (interaction.isRepliable()) {
-      const response = { content: `❌ ${msg}. Please try again.`, ephemeral: true };
-      if (interaction.deferred || interaction.replied) {
-        await interaction.followUp(response).catch(() => {});
-      } else {
-        await interaction.reply(response).catch(() => {});
-      }
+      const msg = { content: '❌ Something went wrong.', ephemeral: true };
+      interaction.deferred || interaction.replied 
+        ? await interaction.followUp(msg).catch(() => {})
+        : await interaction.reply(msg).catch(() => {});
     }
   }
 });
 
-// ─── ADMIN COMMANDS — GUARANTEED TO WORK ───
+// ─── ADMIN COMMANDS ───
 client.on('messageCreate', async message => {
-  if (message.author.bot) return;
-  if (message.author.id !== YOUR_ADMIN_ID) return;
-
+  if (message.author.bot || message.author.id !== YOUR_ADMIN_ID) return;
+  
   const content = message.content.trim();
   if (!/^(done|status|say|time)(\s|$)/i.test(content)) return;
 
   const request = lastRequesterId ? requests.get(lastRequesterId) : null;
-  
-  if (!request) {
-    return message.reply('⚠️ No active requester. Wait for someone to submit first.');
-  }
+  if (!request) return message.reply('⚠️ No active requester.');
 
   try {
-    // ✅ Get the PERSON WHO ASKED — NOT you
     const user = await client.users.fetch(request.userId);
-    console.log(`📤 Sending to: ${user.tag} (${user.id})`);
 
     if (content.toLowerCase() === 'done') {
       await user.send({ embeds: [progressEmbed(request, 100)] });
@@ -351,20 +301,13 @@ client.on('messageCreate', async message => {
       text = content.slice(5).trim();
     }
 
-    if (!text) return message.reply('❌ Example: `say Hi, working on it!`');
-
-    await user.send({
-      embeds: [new EmbedBuilder().setTitle(title).setDescription(text).setColor('#5865F2').setTimestamp()]
-    });
+    if (!text) return message.reply('❌ Example: `say Hi!`');
+    
+    await user.send({ embeds: [new EmbedBuilder().setTitle(title).setDescription(text).setColor('#5865F2').setTimestamp()] });
     return message.reply(`✅ Sent to ${user.tag}!`);
-
-  } catch (err) {
-    console.error('❌ Send failed:', err);
-    return message.reply(
-      `❌ Could not send — they likely have DMs OFF.\n` +
-      `Tell them: Go to User Settings → Privacy & Safety → ` +
-      `Turn ON "Allow Direct Messages from Server Members"`
-    );
+  } catch (e) {
+    console.error('❌ Send failed:', e);
+    return message.reply('❌ Could not send — they may have DMs off.');
   }
 });
 
@@ -374,16 +317,14 @@ const PORT = process.env.PORT || 10000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('JordanAI bot is running ✅');
-}).listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Health server on port ${PORT}`);
-});
+}).listen(PORT, '0.0.0.0', () => console.log(`✅ Health server on port ${PORT}`));
 
 // ─── LOGIN ───
 if (!process.env.DISCORD_TOKEN) {
   console.error('❌ DISCORD_TOKEN missing');
   process.exit(1);
 }
-client.login(process.env.DISCORD_TOKEN).catch(err => {
-  console.error('❌ Login failed:', err);
+client.login(process.env.DISCORD_TOKEN).catch(e => {
+  console.error('❌ Login failed:', e);
   process.exit(1);
 });
