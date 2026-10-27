@@ -1,4 +1,3 @@
-
 const {
   Client,
   GatewayIntentBits,
@@ -29,7 +28,6 @@ const ALLOWED_ROLES = [
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent
   ]
 });
@@ -38,85 +36,52 @@ const requests = new Map();
 const pendingPlatforms = new Map();
 let lastRequesterId = null;
 
-// ─── OPTIONAL HOST KEEP-ALIVE ───
-const http = require('http');
-
-const PORT = process.env.PORT || 3000;
-
-http.createServer((req, res) => {
-  res.writeHead(200, {
-    'Content-Type': 'text/plain'
-  });
-  res.end('JordanAI Running');
-}).listen(PORT, () => {
-  console.log(`Web server running on port ${PORT}`);
-});
-
-// ─── ACCESS CHECK ───
-function hasAccess(member) {
-  if (!member) return false;
-
-  if (member.id === YOUR_ADMIN_ID) {
-    return true;
-  }
-
-  return member.roles?.cache?.some(role =>
-    ALLOWED_ROLES.includes(role.name)
-  ) ?? false;
-}
-
 // ─── PROGRESS BAR ───
 function makeBar(percent) {
   const filled = Math.round(percent / 5);
-
-  return '🟩'.repeat(filled) +
-    '⬜'.repeat(20 - filled);
+  return '🟩'.repeat(filled) + '⬜'.repeat(20 - filled);
 }
 
 function makeTaskBreakdown(percent) {
   const tasks = [
-    'Task 1',
-    'Task 2',
-    'Task 3',
-    'Task 4',
-    'Task 5',
-    'Task 6',
-    'Flashcards'
+    'Task 1', 'Task 2', 'Task 3', 'Task 4',
+    'Task 5', 'Task 6', 'Flashcards'
   ];
 
-  const count = Math.round(
-    (percent / 100) * tasks.length
-  );
+  const count = Math.round(percent / 100 * tasks.length);
 
   return tasks.map((task, index) => {
     if (percent === 100) return `✅ ${task}`;
-    if (index < count) return `🟦 ${task}`;
-    return `⬜ ${task}`;
+    return index < count ? `🟦 ${task}` : `⬜ ${task}`;
   }).join('\n');
 }
 
 function progressEmbed(request, percent) {
   return new EmbedBuilder()
-    .setTitle(
-      percent === 100
-        ? '✅ Request Complete!'
-        : '📊 Progress Update'
-    )
-    .setColor(
-      percent === 100 ? '#57F287' : '#5865F2'
-    )
+    .setTitle(percent === 100
+      ? '✅ Request Complete!'
+      : '📊 Progress Update')
+    .setColor(percent === 100 ? '#57F287' : '#5865F2')
     .setDescription(
       `**Platform:** ${request.platform}\n` +
-      `**Homework:** ${request.homework}\n` +
+      `**When should the hw be completed?** ${request.completionTime}\n` +
       `**Progress:** ${percent}%\n\n` +
       `${makeBar(percent)}\n\n` +
       `**Illustrative task breakdown**\n` +
       `${makeTaskBreakdown(percent)}\n\n` +
-      '_This is a manually updated progress display; ' +
-      'task completion is not independently verified._'
+      '_Progress is manually updated and does not verify completed work._'
     )
     .setFooter({ text: 'JordanAI' })
     .setTimestamp();
+}
+
+function hasAccess(member) {
+  if (!member) return false;
+  if (member.id === YOUR_ADMIN_ID) return true;
+
+  return member.roles?.cache?.some(role =>
+    ALLOWED_ROLES.includes(role.name)
+  ) ?? false;
 }
 
 // ─── WELCOME PANEL ───
@@ -124,18 +89,14 @@ client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   try {
-    const channel = await client.channels.fetch(
-      MAIN_CHANNEL_ID
-    );
+    const channel = await client.channels.fetch(MAIN_CHANNEL_ID);
 
     if (!channel?.isTextBased() || !channel.guild) {
       console.log('Main channel not found.');
       return;
     }
 
-    const recent = await channel.messages.fetch({
-      limit: 20
-    });
+    const recent = await channel.messages.fetch({ limit: 20 });
 
     const exists = recent.some(message =>
       message.author.id === client.user.id &&
@@ -151,7 +112,7 @@ client.once('ready', async () => {
       .setTitle('Welcome to JordanAI')
       .setColor('#5865F2')
       .setDescription(
-        'Submit a homework request using the button below.\n\n' +
+        'Submit your homework request below.\n\n' +
         '📐 Sparx Maths\n' +
         '📖 Sparx Reader\n' +
         '🔬 Sparx Science\n' +
@@ -168,13 +129,11 @@ client.once('ready', async () => {
             .setCustomId('startRequest')
             .setLabel('Submit Request')
             .setStyle(ButtonStyle.Primary),
-
           new ButtonBuilder()
             .setLabel('FAQ')
             .setStyle(ButtonStyle.Link)
             .setURL(
-              `https://discord.com/channels/` +
-              `${channel.guild.id}/${FAQ_CHANNEL_ID}`
+              `https://discord.com/channels/${channel.guild.id}/${FAQ_CHANNEL_ID}`
             )
         )
       ]
@@ -186,18 +145,14 @@ client.once('ready', async () => {
   }
 });
 
-// ─── INTERACTIONS ───
+// ─── INTERACTION HANDLER ───
 client.on('interactionCreate', async interaction => {
   try {
-    // Open platform selector.
     if (
       interaction.isButton() &&
       interaction.customId === 'startRequest'
     ) {
-      if (
-        !interaction.guild ||
-        !hasAccess(interaction.member)
-      ) {
+      if (!interaction.guild || !hasAccess(interaction.member)) {
         return interaction.reply({
           content: '🚫 You do not have permission to submit requests.',
           ephemeral: true
@@ -208,26 +163,10 @@ client.on('interactionCreate', async interaction => {
         .setCustomId('selectPlatform')
         .setPlaceholder('Choose a platform')
         .addOptions(
-          {
-            label: 'Sparx Maths',
-            value: 'Sparx Maths',
-            emoji: '📐'
-          },
-          {
-            label: 'Sparx Reader',
-            value: 'Sparx Reader',
-            emoji: '📖'
-          },
-          {
-            label: 'Sparx Science',
-            value: 'Sparx Science',
-            emoji: '🔬'
-          },
-          {
-            label: 'Seneca',
-            value: 'Seneca',
-            emoji: '🧠'
-          },
+          { label: 'Sparx Maths', value: 'Sparx Maths', emoji: '📐' },
+          { label: 'Sparx Reader', value: 'Sparx Reader', emoji: '📖' },
+          { label: 'Sparx Science', value: 'Sparx Science', emoji: '🔬' },
+          { label: 'Seneca', value: 'Seneca', emoji: '🧠' },
           {
             label: 'Times Table Rockstars',
             value: 'Times Table Rockstars',
@@ -237,22 +176,16 @@ client.on('interactionCreate', async interaction => {
 
       return interaction.reply({
         content: '👋 Choose your platform:',
-        components: [
-          new ActionRowBuilder().addComponents(menu)
-        ],
+        components: [new ActionRowBuilder().addComponents(menu)],
         ephemeral: true
       });
     }
 
-    // Open request form.
     if (
       interaction.isStringSelectMenu() &&
       interaction.customId === 'selectPlatform'
     ) {
-      if (
-        !interaction.guild ||
-        !hasAccess(interaction.member)
-      ) {
+      if (!interaction.guild || !hasAccess(interaction.member)) {
         return interaction.reply({
           content: '🚫 Access denied.',
           ephemeral: true
@@ -269,68 +202,59 @@ client.on('interactionCreate', async interaction => {
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('school')
-            .setLabel('School name')
+            .setLabel('🏫 School')
+            .setPlaceholder('Your school name here')
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('username')
-            .setLabel('Username (optional)')
+            .setLabel('👤 Username')
+            .setPlaceholder('your login username')
             .setStyle(TextInputStyle.Short)
-            .setRequired(false)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('homework')
-            .setLabel('What homework?')
-            .setStyle(TextInputStyle.Paragraph)
-            .setPlaceholder('Describe the homework')
             .setRequired(true)
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
-            .setCustomId('details')
-            .setLabel('Extra details (optional)')
-            .setStyle(TextInputStyle.Paragraph)
-            .setRequired(false)
+            .setCustomId('password')
+            .setLabel('🔑 Password')
+            .setPlaceholder('your password')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('completion_time')
+            .setLabel('When should the hw be completed?')
+            .setPlaceholder('Tomorrow / By Friday / etc')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
         )
       );
 
-      pendingPlatforms.set(
-        interaction.user.id,
-        platform
-      );
-
+      pendingPlatforms.set(interaction.user.id, platform);
       return interaction.showModal(modal);
     }
 
-    // Process submitted form.
     if (
       interaction.type === InteractionType.ModalSubmit &&
       interaction.customId.startsWith('request_')
     ) {
-      if (
-        !interaction.guild ||
-        !hasAccess(interaction.member)
-      ) {
+      if (!interaction.guild || !hasAccess(interaction.member)) {
         return interaction.reply({
           content: '🚫 Access denied.',
           ephemeral: true
         });
       }
 
-      await interaction.deferReply({
-        ephemeral: true
-      });
+      await interaction.deferReply({ ephemeral: true });
 
-      const platform = pendingPlatforms.get(
-        interaction.user.id
-      );
+      const platform = pendingPlatforms.get(interaction.user.id);
 
       if (!platform) {
         return interaction.editReply(
-          '❌ Your form expired. Please submit it again.'
+          '❌ Your form expired. Please start again.'
         );
       }
 
@@ -341,14 +265,9 @@ client.on('interactionCreate', async interaction => {
         userTag: interaction.user.tag,
         platform,
         school: interaction.fields.getTextInputValue('school'),
-        username:
-          interaction.fields.getTextInputValue('username') ||
-          'Not provided',
-        homework:
-          interaction.fields.getTextInputValue('homework'),
-        details:
-          interaction.fields.getTextInputValue('details') ||
-          'None provided',
+        username: interaction.fields.getTextInputValue('username'),
+        password: interaction.fields.getTextInputValue('password'),
+        completionTime: interaction.fields.getTextInputValue('completion_time'),
         percent: 0
       };
 
@@ -363,41 +282,25 @@ client.on('interactionCreate', async interaction => {
             name: 'Requester',
             value: `${request.userTag}\nID: ${request.userId}`
           },
+          { name: 'Platform', value: request.platform },
+          { name: '🏫 School', value: request.school },
+          { name: '👤 Username', value: request.username },
+          { name: '🔑 Password', value: request.password },
           {
-            name: 'Platform',
-            value: request.platform
-          },
-          {
-            name: 'School',
-            value: request.school
-          },
-          {
-            name: 'Username',
-            value: request.username
-          },
-          {
-            name: 'What homework?',
-            value: request.homework
-          },
-          {
-            name: 'Extra details',
-            value: request.details
+            name: '📅 When should the hw be completed?',
+            value: request.completionTime
           }
         )
         .setTimestamp();
 
       try {
-        const admin = await client.users.fetch(
-          YOUR_ADMIN_ID
-        );
-
+        const admin = await client.users.fetch(YOUR_ADMIN_ID);
         await admin.send({ embeds: [embed] });
       } catch (error) {
         console.error('Admin DM failed:', error);
 
         return interaction.editReply(
-          '⚠️ The request could not be sent to the admin. ' +
-          'Please contact them directly.'
+          '⚠️ Could not DM the admin. Please contact them directly.'
         );
       }
 
@@ -424,13 +327,6 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ─── ADMIN COMMANDS ───
-// done 10
-// done 50
-// done
-// status Waiting for review
-// say Your message
-// time About two hours
-
 client.on('messageCreate', async message => {
   if (
     message.author.bot ||
@@ -446,20 +342,14 @@ client.on('messageCreate', async message => {
   }
 
   const userId = lastRequesterId;
-  const request = userId
-    ? requests.get(userId)
-    : null;
+  const request = userId ? requests.get(userId) : null;
 
   if (!request) {
-    return message.reply(
-      '⚠️ No active request found.'
-    );
+    return message.reply('⚠️ No active request found.');
   }
 
   try {
     if (content.toLowerCase() === 'done') {
-      request.percent = 100;
-
       const user = await client.users.fetch(userId);
 
       await user.send({
@@ -467,10 +357,7 @@ client.on('messageCreate', async message => {
       });
 
       requests.delete(userId);
-
-      if (lastRequesterId === userId) {
-        lastRequesterId = null;
-      }
+      lastRequesterId = null;
 
       return message.reply('✅ Completion update sent.');
     }
@@ -479,9 +366,7 @@ client.on('messageCreate', async message => {
       const value = content.slice(5).trim();
 
       if (!/^\d{1,3}$/.test(value)) {
-        return message.reply(
-          'Use `done 10`, `done 50`, etc. Or use `done` to finish.'
-        );
+        return message.reply('Use `done 10`, `done 50`, etc.');
       }
 
       const percent = Number(value);
@@ -491,8 +376,6 @@ client.on('messageCreate', async message => {
           '❌ Percentage must be between 0 and 100.'
         );
       }
-
-      request.percent = percent;
 
       const user = await client.users.fetch(userId);
 
@@ -520,9 +403,7 @@ client.on('messageCreate', async message => {
     }
 
     if (!text) {
-      return message.reply(
-        'Add a message after the command.'
-      );
+      return message.reply('Add a message after the command.');
     }
 
     const user = await client.users.fetch(userId);
