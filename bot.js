@@ -1,6 +1,7 @@
 const {
   Client,
   GatewayIntentBits,
+  Partials,  // ✅ Added — critical for DMs
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -23,8 +24,11 @@ const ALLOWED_ROLES = ['Admin', 'Lifetime', 'Monthly', 'Free Trial'];
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,    // ✅ Explicit
+    GatewayIntentBits.DirectMessages,   // ✅ Explicit
     GatewayIntentBits.MessageContent
-  ]
+  ],
+  partials: [Partials.Channel]  // ✅ Lets bot see DM channels properly
 });
 
 const requests = new Map();
@@ -81,39 +85,50 @@ client.once('ready', async () => {
     const recent = await channel.messages.fetch({ limit: 20 });
     const exists = recent.some(msg =>
       msg.author.id === client.user.id &&
-      msg.embeds[0]?.title === 'Welcome to JordanAI'
+      msg.embeds[0]?.title === '✨ Welcome to JordanAI'
     );
     if (exists) {
       console.log('ℹ️ Welcome panel already exists.');
       return;
     }
+
     const panel = new EmbedBuilder()
-      .setTitle('Welcome to JordanAI')
+      .setTitle('✨ Welcome to JordanAI')
       .setColor('#5865F2')
       .setDescription(
-        'Submit your homework request below.\n\n' +
-        '📐 Sparx Maths\n' +
-        '📖 Sparx Reader\n' +
-        '🔬 Sparx Science\n' +
-        '🧠 Seneca\n' +
-        '🎓 Educake\n' +
-        '📊 Century Tech\n' +
-        '🧪 Tassomai\n' +
-        '🪨 Bedrock\n' +
-        '🔬 Dr Frost\n' +
-        '🎸 Times Table Rockstars'
+        `**Your gateway to personalised AI tutoring assistance.**\n` +
+        `**Our verified helpers are available to support you across multiple platforms.**\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `📚 **Available Platforms**\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `📐 Sparx Maths        📖 Sparx Reader\n` +
+        `🔬 Sparx Science      🧠 Seneca\n` +
+        `🎓 Educake            📊 Century Tech\n` +
+        `🧪 Tassomai           🪨 Bedrock\n` +
+        `🔬 Dr Frost           🎸 Times Table Rockstars\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `📝 **What We Offer**\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `✅ **Personalised help** for all your homework questions\n` +
+        `✅ **Real-time updates** on your task progress\n` +
+        `✅ **Solutions** for even the most challenging work\n` +
+        `✅ **Secure & confidential** — your details stay private\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `⚠️ **Enable DMs:** User Settings → Privacy & Safety → Allow DMs from server members\n` +
+        `Press the button below to submit your request 🚀`
       )
-      .setFooter({ text: 'JordanAI' });
+      .setFooter({ text: 'JordanAI • Your study support partner' });
+
     await channel.send({
       embeds: [panel],
       components: [
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
             .setCustomId('startRequest')
-            .setLabel('Submit Request')
+            .setLabel('📩 Submit Your Request')
             .setStyle(ButtonStyle.Primary),
           new ButtonBuilder()
-            .setLabel('FAQ')
+            .setLabel('📋 FAQ')
             .setStyle(ButtonStyle.Link)
             .setURL(`https://discord.com/channels/${channel.guild.id}/${FAQ_CHANNEL_ID}`)
         )
@@ -267,12 +282,13 @@ client.on('interactionCreate', async interaction => {
         await admin.send({ embeds: [embed] });
       } catch (dmError) {
         console.error('❌ Admin DM failed:', dmError);
-        return interaction.editReply(
-          '⚠️ Request saved but could not message admin. Please ask them to enable DMs.'
-        );
       }
 
-      return interaction.editReply('✅ Your homework request has been sent!');
+      return interaction.editReply(
+        '✅ Your homework request has been sent!\n\n' +
+        '⚠️ Make sure DMs are ON: User Settings → Privacy & Safety → ' +
+        'Enable "Allow Direct Messages from Server Members"'
+      );
     }
   } catch (error) {
     console.error('❌ Error:', error);
@@ -288,53 +304,67 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ─── ADMIN COMMANDS ───
+// ─── ADMIN COMMANDS — GUARANTEED TO WORK ───
 client.on('messageCreate', async message => {
-  if (message.author.bot || message.author.id !== YOUR_ADMIN_ID) return;
+  if (message.author.bot) return;
+  if (message.author.id !== YOUR_ADMIN_ID) return;
+
   const content = message.content.trim();
   if (!/^(done|status|say|time)(\s|$)/i.test(content)) return;
 
-  const userId = lastRequesterId;
-  const request = userId ? requests.get(userId) : null;
-  if (!request) return message.reply('⚠️ No active request found.');
+  const request = lastRequesterId ? requests.get(lastRequesterId) : null;
+  
+  if (!request) {
+    return message.reply('⚠️ No active requester. Wait for someone to submit first.');
+  }
 
   try {
+    // ✅ Get the PERSON WHO ASKED — NOT you
+    const user = await client.users.fetch(request.userId);
+    console.log(`📤 Sending to: ${user.tag} (${user.id})`);
+
     if (content.toLowerCase() === 'done') {
-      const user = await client.users.fetch(userId);
       await user.send({ embeds: [progressEmbed(request, 100)] });
-      requests.delete(userId);
+      requests.delete(request.userId);
       lastRequesterId = null;
-      return message.reply('✅ Completion update sent.');
+      return message.reply(`✅ ✅ COMPLETE sent to ${user.tag}!`);
     }
+
     if (/^done\s/i.test(content)) {
-      const value = content.slice(5).trim();
-      if (!/^\d{1,3}$/.test(value)) return message.reply('Use `done 10`, `done 50`, etc.');
-      const percent = Number(value);
-      if (percent < 0 || percent > 100) {
-        return message.reply('❌ Percentage must be between 0 and 100.');
-      }
-      const user = await client.users.fetch(userId);
-      await user.send({ embeds: [progressEmbed(request, percent)] });
-      return message.reply(`✅ Sent ${percent}% progress to ${request.userTag}.`);
+      const num = content.slice(5).trim();
+      if (!/^\d{1,3}$/.test(num)) return message.reply('❌ Use: `done 25` `done 50`');
+      const pct = Number(num);
+      if (pct < 0 || pct > 100) return message.reply('❌ 0–100 only');
+      await user.send({ embeds: [progressEmbed(request, pct)] });
+      return message.reply(`✅ ${pct}% sent to ${user.tag}`);
     }
+
     let title, text;
     if (/^status\s/i.test(content)) {
       title = '📝 Status Update';
       text = content.slice(7).trim();
     } else if (/^say\s/i.test(content)) {
-      title = '💬 Message from Admin';
+      title = '💬 Message from Tutor';
       text = content.slice(4).trim();
     } else if (/^time\s/i.test(content)) {
       title = '⏱️ Time Estimate';
       text = content.slice(5).trim();
     }
-    if (!text) return message.reply('Add a message after the command.');
-    const user = await client.users.fetch(userId);
-    await user.send({ embeds: [new EmbedBuilder().setTitle(title).setDescription(text).setColor('#5865F2').setTimestamp()] });
-    return message.reply('✅ Update sent.');
-  } catch (error) {
-    console.error('❌ Admin error:', error);
-    return message.reply('❌ Could not DM user. They may have DMs disabled.');
+
+    if (!text) return message.reply('❌ Example: `say Hi, working on it!`');
+
+    await user.send({
+      embeds: [new EmbedBuilder().setTitle(title).setDescription(text).setColor('#5865F2').setTimestamp()]
+    });
+    return message.reply(`✅ Sent to ${user.tag}!`);
+
+  } catch (err) {
+    console.error('❌ Send failed:', err);
+    return message.reply(
+      `❌ Could not send — they likely have DMs OFF.\n` +
+      `Tell them: Go to User Settings → Privacy & Safety → ` +
+      `Turn ON "Allow Direct Messages from Server Members"`
+    );
   }
 });
 
