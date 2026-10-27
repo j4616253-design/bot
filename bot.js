@@ -15,12 +15,11 @@ const {
 const { loginAndGetHomeworks } = require('./automation.js');
 require('dotenv').config();
 
-// ✅ YOUR CONFIG — ALREADY FILLED IN
+// ✅ YOUR CONFIG
 const YOUR_ADMIN_ID = '1433073407075024981';
 const MAIN_CHANNEL_ID = '1529910322184454296';
 const FAQ_CHANNEL_ID = '1517285523042078730';
 
-// ✅ ALLOWED ROLES
 const ALLOWED_ROLES = ['Admin', 'Lifetime', 'Monthly', 'Free Trial'];
 
 const client = new Client({
@@ -33,39 +32,41 @@ const client = new Client({
 
 const sessions = new Map();
 let lastRequester = null;
-let lastPlatform = null;
 
-// Render keep-alive
 const PORT = process.env.PORT || 3000;
 require('http').createServer((req, res) => {
   res.writeHead(200);
   res.end('JordanAI Bot Running ✅');
 }).listen(PORT, () => {
-  console.log(`🌐 Web keep-alive on port ${PORT}`);
+  console.log(`🌐 Keep-alive on port ${PORT}`);
 });
 
-// ─── ACCESS CHECK ───
 function hasAccess(member) {
   if (member.id === YOUR_ADMIN_ID) return true;
   return member.roles.cache.some(role => ALLOWED_ROLES.includes(role.name));
 }
 
-// ─── BOT READY — POST MAIN PANEL ───
+// ─── POST PANEL — ONLY IF NONE EXISTS ───
 client.on('ready', async () => {
   await client.user.setUsername('JordanAI').catch(() => {});
   console.log(`✅ Ready as ${client.user.tag}`);
 
-  // Send Main Panel to your channel
   try {
     const mainChannel = await client.channels.fetch(MAIN_CHANNEL_ID);
-    if (!mainChannel || !mainChannel.send) return console.log('⚠️ Main channel not found');
+    if (!mainChannel?.send) return console.log('⚠️ Main channel not found');
 
-    // Prevent duplicate panels — clear old ones
-    const messages = await mainChannel.messages.fetch({ limit: 5 });
-    const oldPanel = messages.find(m => m.embeds[0]?.title?.includes('JordanAI'));
-    if (oldPanel) await oldPanel.delete().catch(() => {});
+    // Check for existing panel — only post once
+    const recentMessages = await mainChannel.messages.fetch({ limit: 15 });
+    const existingPanel = recentMessages.find(msg => 
+      msg.embeds.length > 0 && 
+      msg.embeds[0].title?.includes('Welcome to JordanAI')
+    );
 
-    // ✨ MAIN PANEL EMBED
+    if (existingPanel) {
+      console.log('✅ Panel already exists — no duplicate sent');
+      return;
+    }
+
     const mainPanel = new EmbedBuilder()
       .setTitle('✨ Welcome to JordanAI')
       .setColor('#5865F2')
@@ -78,7 +79,6 @@ client.on('ready', async () => {
         '🎸 **Times Table Rockstars** — Times tables practice\n\n' +
         '👇 Click below to get started or view help'
       )
-      .setThumbnail('https://cdn.discordapp.com/embed/avatars/0.png')
       .setFooter({ text: 'JordanAI • Fast & Reliable' });
 
     const buttons = new ActionRowBuilder().addComponents(
@@ -89,37 +89,34 @@ client.on('ready', async () => {
       new ButtonBuilder()
         .setLabel('📋 FAQ / Help')
         .setStyle(ButtonStyle.Link)
-        .setURL(`https://discord.com/channels/@me/${FAQ_CHANNEL_ID}`)
+        .setURL(`https://discord.com/channels/${mainChannel.guild.id}/${FAQ_CHANNEL_ID}`)
     );
 
-    await mainChannel.send({
-      embeds: [mainPanel],
-      components: [buttons]
-    });
+    await mainChannel.send({ embeds: [mainPanel], components: [buttons] });
+    console.log('✅ New panel posted');
 
-    console.log('✅ Main panel posted successfully!');
   } catch (e) {
-    console.error('❌ Failed to post panel:', e.message);
+    console.error('❌ Panel error:', e.message);
   }
 });
 
-// ─── START BUTTON HANDLER ───
+// ─── START BUTTON ───
 client.on('interactionCreate', async i => {
   if (!i.isButton() || i.customId !== 'startRequest') return;
 
+  // ✅ Defer IMMEDIATELY — stops "didn't respond in time"
+  await i.deferReply({ ephemeral: true });
+
   if (!i.guild || !hasAccess(i.member)) {
-    return i.reply({
-      embeds: [
-        new EmbedBuilder()
-          .setTitle('🚫 Access Denied')
-          .setColor('#ED4245')
-          .setDescription(
-            "You don't have access to JordanAI.\n\n" +
-            "Required roles:\n✅ Admin\n✅ Lifetime\n✅ Monthly\n✅ Free Trial\n\n" +
-            "Purchase access to get started!"
-          )
-      ],
-      ephemeral: true
+    return i.editReply({
+      embeds: [new EmbedBuilder()
+        .setTitle('🚫 Access Denied')
+        .setColor('#ED4245')
+        .setDescription(
+          "You don't have access to JordanAI.\n\n" +
+          "Required roles:\n✅ Admin\n✅ Lifetime\n✅ Monthly\n✅ Free Trial\n\n" +
+          "Purchase access to get started!"
+        )]
     });
   }
 
@@ -134,17 +131,20 @@ client.on('interactionCreate', async i => {
       { label: 'Times Table Rockstars', value: 'ttrockstars', emoji: '🎸', description: 'Times Tables practice' }
     ]);
 
-  await i.reply({
+  await i.editReply({
     content: '👋 **Choose your platform below 👇**',
-    components: [new ActionRowBuilder().addComponents(platformMenu)],
-    ephemeral: true
+    components: [new ActionRowBuilder().addComponents(platformMenu)]
   });
 });
 
 // ─── PLATFORM SELECT → FORM ───
 client.on('interactionCreate', async i => {
   if (!i.isStringSelectMenu() || i.customId !== 'selectPlatform') return;
-  if (!i.guild || !hasAccess(i.member)) return i.reply({ content: '🚫 Access denied.', ephemeral: true });
+  await i.deferReply({ ephemeral: true });
+
+  if (!i.guild || !hasAccess(i.member)) {
+    return i.editReply({ content: '🚫 Access denied.' });
+  }
 
   const platform = i.values[0];
   const formTitles = {
@@ -155,10 +155,7 @@ client.on('interactionCreate', async i => {
     ttrockstars: '🎸 TTRockstars — Request'
   };
 
-  const modal = new ModalBuilder()
-    .setCustomId(`form_${platform}`)
-    .setTitle(formTitles[platform]);
-
+  const modal = new ModalBuilder().setCustomId(`form_${platform}`).setTitle(formTitles[platform]);
   modal.addComponents(
     new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('school').setLabel('🏫 School Name').setStyle(TextInputStyle.Short).setRequired(true)
@@ -170,7 +167,7 @@ client.on('interactionCreate', async i => {
       new TextInputBuilder().setCustomId('password').setLabel('🔑 Password').setStyle(TextInputStyle.Short).setRequired(true)
     ),
     new ActionRowBuilder().addComponents(
-      new TextInputBuilder().setCustomId('deadline').setLabel('📅 When to be completed?').setStyle(TextInputStyle.Short).setPlaceholder('e.g. Tomorrow, Next week, By Friday...').setRequired(true)
+      new TextInputBuilder().setCustomId('deadline').setLabel('📅 When to be completed?').setStyle(TextInputStyle.Short).setPlaceholder('e.g. Tomorrow, Next week...').setRequired(true)
     )
   );
 
@@ -191,7 +188,11 @@ client.on('interactionCreate', async i => {
 // ─── FORM SUBMISSION ───
 client.on('interactionCreate', async i => {
   if (i.type !== InteractionType.ModalSubmit) return;
-  if (!i.guild || !hasAccess(i.member)) return i.reply({ content: '🚫 Access denied.', ephemeral: true });
+  await i.deferReply({ ephemeral: true });
+
+  if (!i.guild || !hasAccess(i.member)) {
+    return i.editReply({ content: '🚫 Access denied.' });
+  }
 
   const platform = i.customId.replace('form_', '');
   const platformEmoji = { sparx_maths: '📐', sparx_reader: '📖', sparx_science: '🔬', seneca: '🧠', ttrockstars: '🎸' };
@@ -200,12 +201,10 @@ client.on('interactionCreate', async i => {
     seneca: 'Seneca Learning', ttrockstars: 'Times Table Rockstars'
   };
 
-  await i.deferReply({ ephemeral: true });
   const school = i.fields.getTextInputValue('school');
   const username = i.fields.getTextInputValue('username');
   const password = i.fields.getTextInputValue('password');
   const deadline = i.fields.getTextInputValue('deadline');
-
   lastRequester = i.user;
 
   if (platform === 'sparx_maths') {
@@ -219,12 +218,11 @@ client.on('interactionCreate', async i => {
       list.forEach((hw, idx) => menu.addOptions(new StringSelectMenuOptionBuilder().setLabel(`${hw.due} (${hw.percent}%)`).setValue(`${idx}`)));
 
       await i.editReply({
-        content: `✅ Logged in — ${list.length} homeworks found!\n📅 Deadline: **${deadline}**\nPick one:`,
-        components: [new ActionRowBuilder().addComponents(menu)],
-        ephemeral: true
+        content: `✅ Logged in — ${list.length} homeworks found!\n📅 Deadline: **${deadline}**`,
+        components: [new ActionRowBuilder().addComponents(menu)]
       });
     } catch (e) {
-      await i.editReply({ content: `❌ ${e.message}`, ephemeral: true });
+      await i.editReply({ content: `❌ ${e.message}` });
     }
   } else {
     const requestEmbed = new EmbedBuilder()
@@ -239,7 +237,7 @@ client.on('interactionCreate', async i => {
       )
       .setTimestamp();
 
-    await i.editReply({ content: `✅ Request submitted!\n📅 Deadline: **${deadline}**`, ephemeral: true });
+    await i.editReply({ content: `✅ Request submitted!\n📅 Deadline: **${deadline}**` });
     await i.followUp({ embeds: [requestEmbed], ephemeral: true });
     try {
       const adminUser = await client.users.fetch(YOUR_ADMIN_ID);
@@ -251,9 +249,12 @@ client.on('interactionCreate', async i => {
 // ─── SPARX MATHS — HOMEWORK PICKED ───
 client.on('interactionCreate', async i => {
   if (!i.isStringSelectMenu() || i.customId !== 'pickHW') return;
-  if (!i.guild || !hasAccess(i.member)) return i.reply({ content: '🚫 Access denied.', ephemeral: true });
-
   await i.deferUpdate();
+
+  if (!i.guild || !hasAccess(i.member)) {
+    return i.reply({ content: '🚫 Access denied.', ephemeral: true });
+  }
+
   const ses = sessions.get(i.user.id);
   if (!ses) return i.editReply({ content: '❌ Session expired.', components: [] });
 
@@ -284,7 +285,7 @@ client.on('interactionCreate', async i => {
       await i.editReply({ content: text, components: [], ephemeral: true });
     });
   } catch (e) {
-    await i.editReply({ content: `❌ ${e.message}`, ephemeral: true });
+    await i.editReply({ content: `❌ ${e.message}` });
   }
 });
 
