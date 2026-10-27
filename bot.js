@@ -1,417 +1,368 @@
-const express = require('express');
-const app = express();
-const port = process.env.PORT || 10000;
-
-app.get('/', (req, res) => {
-  res.send('Bot Ecosystem Online!');
-});
-
-app.listen(port, '0.0.0.0', () => {
-  console.log(`📡 Port detected! Keep-alive server successfully bound to port ${port}`);
-});
-const {
-  Client,
-  GatewayIntentBits,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
-  ActionRowBuilder,
-  InteractionType,
-  StringSelectMenuBuilder,
-  StringSelectMenuOptionBuilder,
-  EmbedBuilder
-} = require('discord.js');
-
+const { Client, GatewayIntentBits, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, InteractionType, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, EmbedBuilder } = require('discord.js');
 const { loginAndGetHomeworks } = require('./automation.js');
 require('dotenv').config();
 
-// === CONFIGURATION ===
+// ✅ YOUR ID
 const YOUR_ADMIN_ID = '1433073407075024981';
-const ALLOWED_ROLES = ['Monthly', 'Free Trial', 'Lifetime', 'Admin'];
-// =====================
 
-const token = process.env.DISCORD_TOKEN || process.env.DISCORD__TOKEN;
-if (!token) {
-  console.error('❌ CRITICAL ERROR: No Discord token found in your .env file!');
-  process.exit(1);
-}
+// ✅ ALLOWED ROLES — anyone with these can use the bot
+const ALLOWED_ROLES = ['Admin', 'Lifetime', 'Monthly', 'Free Trial'];
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.MessageContent
-  ],
-  partials: ['CHANNEL']
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.MessageContent
+    ]
 });
 
 const sessions = new Map();
 let lastRequester = null;
+let lastPlatform = null;
+
+// Render keep-alive
+const PORT = process.env.PORT || 3000;
+require('http').createServer((req, res) => {
+    res.writeHead(200);
+    res.end('JordanAI Bot Running ✅');
+}).listen(PORT, () => {
+    console.log(`🌐 Web keep-alive on port ${PORT}`);
+});
 
 client.on('ready', async () => {
-  await client.user.setUsername('JordanAI').catch(() => {});
-  console.log(`✅ Ready as ${client.user.tag}`);
+    await client.user.setUsername('JordanAI').catch(() => {});
+    console.log(`✅ Ready as ${client.user.tag}`);
 });
 
-// 1. PHASE ONE: User triggers launcher → Send Subject Selection Dropdown
+// ─── ACCESS CHECK FUNCTION ───
+function hasAccess(member) {
+    // You always have access
+    if (member.id === YOUR_ADMIN_ID) return true;
+    // Check for any allowed role
+    return member.roles.cache.some(role =>
+        ALLOWED_ROLES.includes(role.name)
+    );
+}
+
+// ─── MAIN START BUTTON HANDLER ───
 client.on('interactionCreate', async i => {
-  if (!i.isButton()) return;
-  if (i.customId === 'triggerHomeworkForm') {
-    if (!i.guild) {
-      return i.reply({
-        content: '❌ This bot can only be used inside the official server.',
-        ephemeral: true
-      });
+    if (!i.isButton() || i.customId !== 'startRequest') return;
+
+    // Check if user is in a guild & has permission
+    if (!i.guild || !hasAccess(i.member)) {
+        return i.reply({
+            embeds: [
+                new EmbedBuilder()
+                    .setTitle('🚫 Access Denied')
+                    .setColor('#ED4245')
+                    .setDescription(
+                        "You don't have access to JordanAI.\n\n" +
+                        "You need one of these roles:\n" +
+                        "✅ Admin\n✅ Lifetime\n✅ Monthly\n✅ Free Trial\n\n" +
+                        "Purchase access to get started!"
+                    )
+            ],
+            ephemeral: true
+        });
     }
 
-    const member = i.member;
-    const hasRole = member.roles.cache.some(role =>
-      ALLOWED_ROLES.includes(role.name) || ALLOWED_ROLES.includes(role.id)
+    const platformMenu = new StringSelectMenuBuilder()
+        .setCustomId('selectPlatform')
+        .setPlaceholder('✨ Choose your platform...')
+        .addOptions([
+            { label: 'Sparx Maths', value: 'sparx_maths', emoji: '📐', description: 'Homework solver & tracking' },
+            { label: 'Sparx Reader', value: 'sparx_reader', emoji: '📖', description: 'Reading tasks' },
+            { label: 'Sparx Science', value: 'sparx_science', emoji: '🔬', description: 'Science assignments' },
+            { label: 'Seneca', value: 'seneca', emoji: '🧠', description: 'Seneca Learning support' },
+            { label: 'Times Table Rockstars', value: 'ttrockstars', emoji: '🎸', description: 'Times Tables practice' }
+        ]);
+
+    await i.reply({
+        content: '👋 **Welcome to JordanAI!**\n\nSelect the platform you need help with below 👇',
+        components: [new ActionRowBuilder().addComponents(platformMenu)],
+        ephemeral: true
+    });
+});
+
+// ─── PLATFORM SELECT → BUILD FORM ───
+client.on('interactionCreate', async i => {
+    if (!i.isStringSelectMenu() || i.customId !== 'selectPlatform') return;
+
+    // Double-check access
+    if (!i.guild || !hasAccess(i.member)) {
+        return i.reply({ content: '🚫 Access denied.', ephemeral: true });
+    }
+
+    const platform = i.values[0];
+    const formTitles = {
+        sparx_maths: '📐 Sparx Maths — Homework',
+        sparx_reader: '📖 Sparx Reader — Request',
+        sparx_science: '🔬 Sparx Science — Request',
+        seneca: '🧠 Seneca — Request',
+        ttrockstars: '🎸 TTRockstars — Request'
+    };
+
+    const modal = new ModalBuilder()
+        .setCustomId(`form_${platform}`)
+        .setTitle(formTitles[platform]);
+
+    // Common fields
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+                .setCustomId('school')
+                .setLabel('🏫 School Name')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+                .setCustomId('username')
+                .setLabel('👤 Username')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+                .setCustomId('password')
+                .setLabel('🔑 Password')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+                .setCustomId('deadline')
+                .setLabel('📅 When would you like it completed?')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('e.g. Tomorrow, Next week, By 5pm Friday...')
+                .setRequired(true)
+        )
     );
 
-    if (!hasRole) {
-      return i.reply({
-        content: '❌ Access Denied. You must have an active subscription to use JordanAI.',
-        ephemeral: true
-      });
+    // Extra fields for Sparx Maths
+    if (platform === 'sparx_maths') {
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('minT')
+                    .setLabel('⏱️ Min sec/question')
+                    .setStyle(TextInputStyle.Short)
+                    .setValue('30')
+                    .setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('maxT')
+                    .setLabel('⏱️ Max sec/question')
+                    .setStyle(TextInputStyle.Short)
+                    .setValue('55')
+                    .setRequired(true)
+            )
+        );
     }
 
-    const subjectMenu = new StringSelectMenuBuilder()
-      .setCustomId('selectSubjectPlatform')
-      .setPlaceholder('Select the Sparx platform subject:')
-      .addOptions(
-        new StringSelectMenuOptionBuilder()
-          .setLabel('Sparx Maths ➗')
-          .setDescription('Automated scraping & processing engine')
-          .setValue('maths'),
-        new StringSelectMenuOptionBuilder()
-          .setLabel('Sparx Reader 📚')
-          .setDescription('Custom tracking for specific book reading sets')
-          .setValue('reader'),
-        new StringSelectMenuOptionBuilder()
-          .setLabel('Sparx Science 🧪')
-          .setDescription('Custom automated tracking for science sets')
-          .setValue('science')
-      );
-
-    const menuRow = new ActionRowBuilder().addComponents(subjectMenu);
-    await i.reply({
-      content: '⚙️ **JordanAI Platform Launcher**\nPlease select your current assignment subject from the dropdown menu below:',
-      components: [menuRow],
-      ephemeral: true
-    });
-  }
+    await i.showModal(modal);
 });
 
-// 2. PHASE TWO: User picks Subject → Show Modal Form
+// ─── FORM SUBMISSION ───
 client.on('interactionCreate', async i => {
-  if (!i.isStringSelectMenu() || i.customId !== 'selectSubjectPlatform') return;
-  const chosenSubject = i.values[0];
+    if (i.type !== InteractionType.ModalSubmit) return;
 
-  const modal = new ModalBuilder()
-    .setCustomId(`hwForm_${chosenSubject}`)
-    .setTitle(`JordanAI — Sparx ${chosenSubject.toUpperCase()}`);
+    // Final access check
+    if (!i.guild || !hasAccess(i.member)) {
+        return i.reply({ content: '🚫 Access denied.', ephemeral: true });
+    }
 
-  const schoolInput = new TextInputBuilder()
-    .setCustomId('school')
-    .setLabel('School Name')
-    .setStyle(TextInputStyle.Short)
-    .setRequired(true);
+    const platform = i.customId.replace('form_', '');
+    const platformEmoji = {
+        sparx_maths: '📐', sparx_reader: '📖', sparx_science: '🔬', seneca: '🧠', ttrockstars: '🎸'
+    };
+    const platformNames = {
+        sparx_maths: 'Sparx Maths', sparx_reader: 'Sparx Reader', sparx_science: 'Sparx Science',
+        seneca: 'Seneca Learning', ttrockstars: 'Times Table Rockstars'
+    };
 
-  const userInput = new TextInputBuilder()
-    .setCustomId('user')
-    .setLabel('Username')
-    .setStyle(TextInputStyle.Short)
-    .setRequired(true);
+    await i.deferReply({ ephemeral: true });
 
-  const passInput = new TextInputBuilder()
-    .setCustomId('pass')
-    .setLabel('Password')
-    .setStyle(TextInputStyle.Short)
-    .setRequired(true);
-
-  const timingOrDateInput = new TextInputBuilder()
-    .setCustomId('timingOrDate')
-    .setRequired(true);
-
-  if (chosenSubject === 'maths') {
-    timingOrDateInput
-      .setLabel('Min-Max Sec/Question delays')
-      .setStyle(TextInputStyle.Short)
-      .setValue('30-55');
-  } else {
-    timingOrDateInput
-      .setLabel('Homework Date / Selection Label')
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('Example: Last week homework, 24th Oct, etc.');
-  }
-
-  const row1 = new ActionRowBuilder().addComponents(schoolInput);
-  const row2 = new ActionRowBuilder().addComponents(userInput);
-  const row3 = new ActionRowBuilder().addComponents(passInput);
-  const row4 = new ActionRowBuilder().addComponents(timingOrDateInput);
-  modal.addComponents(row1, row2, row3, row4);
-  await i.showModal(modal);
-});
-
-// 3. PHASE THREE: Process Modal Submission
-client.on('interactionCreate', async i => {
-  if (i.type !== InteractionType.ModalSubmit || !i.customId.startsWith('hwForm_')) return;
-
-  const subject = i.customId.replace('hwForm_', '');
-  const school = i.fields.getTextInputValue('school');
-  const username = i.fields.getTextInputValue('user');
-  const password = i.fields.getTextInputValue('pass');
-  const inputVal = i.fields.getTextInputValue('timingOrDate');
-
-  let minT = '30', maxT = '55', customDate = '';
-  if (subject === 'maths') {
-    const parts = inputVal.includes('-') ? inputVal.split('-') : ['30', '55'];
-    minT = parts[0];
-    maxT = parts[1];
-  } else {
-    customDate = inputVal.trim();
-  }
-
-  // ✅ INSTANT PATH FOR READER / SCIENCE
-  if (subject !== 'maths') {
-    await i.reply({
-      content: `🚀 **Task Initialized Successfully**\nYour request for **Sparx ${subject.toUpperCase()}** (${customDate}) has been queued. Direct messaging channels will remain active to stream execution progress updates.`,
-      ephemeral: true
-    });
+    const school = i.fields.getTextInputValue('school');
+    const username = i.fields.getTextInputValue('username');
+    const password = i.fields.getTextInputValue('password');
+    const deadline = i.fields.getTextInputValue('deadline');
 
     lastRequester = i.user;
+    lastPlatform = platform;
 
-    // Log to Admin
-    try {
-      const adminUser = await client.users.fetch(YOUR_ADMIN_ID);
-      await adminUser.send({
-        embeds: [
-          new EmbedBuilder()
-            .setTitle('📥 NEW MULTI-SUBJECT REQUEST — RECEIVED')
+    // ─── SPARX MATHS ───
+    if (platform === 'sparx_maths') {
+        const minT = i.fields.getTextInputValue('minT');
+        const maxT = i.fields.getTextInputValue('maxT');
+
+        try {
+            const { list, runSolver } = await loginAndGetHomeworks(school, username, password, minT, maxT);
+            sessions.set(i.user.id, { runSolver, platform, minT, maxT, homeworkList: list, deadline, school, username, password });
+
+            const menu = new StringSelectMenuBuilder()
+                .setCustomId('pickHW')
+                .setPlaceholder('📋 Choose your homework below...');
+
+            list.forEach((hw, idx) => {
+                menu.addOptions(new StringSelectMenuOptionBuilder()
+                    .setLabel(`${hw.due} (${hw.percent}%)`)
+                    .setValue(`${idx}`)
+                );
+            });
+
+            await i.editReply({
+                content: `✅ Logged in — ${list.length} homeworks found!\n📅 Deadline you set: **${deadline}**\nPick one to get started:`,
+                components: [new ActionRowBuilder().addComponents(menu)],
+                ephemeral: true
+            });
+        } catch (e) {
+            await i.editReply({ content: `❌ ${e.message}`, ephemeral: true });
+        }
+    }
+    // ─── OTHER PLATFORMS ───
+    else {
+        const requestEmbed = new EmbedBuilder()
+            .setTitle(`${platformEmoji[platform]} NEW REQUEST — ${platformNames[platform]}`)
             .setColor('#5865F2')
             .addFields(
-              { name: '👤 Submitted By', value: `${i.user.tag}\nID: \`${i.user.id}\``, inline: false },
-              { name: '📚 Platform Subject', value: subject.toUpperCase(), inline: false },
-              { name: '🏫 School', value: school, inline: false },
-              { name: '🔐 Login Details', value: `Username: \`${username}\`\nPassword: \`${password}\``, inline: false },
-              { name: '⏱️ Timing Settings', value: `Custom Label/Date: \`${customDate}\``, inline: false }
+                { name: '👤 Submitted By', value: `${i.user.tag}\nID: \`${i.user.id}\``, inline: false },
+                { name: '🏫 School', value: school, inline: false },
+                { name: '👤 Username', value: `\`${username}\``, inline: true },
+                { name: '🔑 Password', value: `\`${password}\``, inline: true },
+                { name: '📅 Deadline / Due Date', value: `**${deadline}**`, inline: false }
             )
-            .setTimestamp()
-        ]
-      });
-    } catch (dmErr) {
-      console.log('\n⚠️ Could not DM admin.');
-    }
+            .setTimestamp();
 
-    // Run in background
-    (async () => {
-      try {
-        const updateMsg = async text => {
-          await i.user.send(`🤖 Automation Status: ${text}`).catch(() => {});
-        };
-        const { runSolver } = await loginAndGetHomeworks(
-          school, username, password, subject, minT, maxT, customDate
-        );
-        await runSolver(0, updateMsg);
-      } catch (e) {
-        console.error('Reader/Science worker loop catch:', e.message);
-      }
-    })();
-    return;
-  }
-
-  // 🚨 MATHS ONLY PATH
-  await i.deferReply({ ephemeral: true });
-  await i.editReply({
-    content: '⏳ Connecting to Sparx platform and launching browser... This may take a moment.'
-  });
-
-  (async () => {
-    try {
-      const { list, runSolver } = await loginAndGetHomeworks(
-        school, username, password, subject, minT, maxT, customDate
-      );
-
-      sessions.set(i.user.id, {
-        runSolver,
-        school,
-        username,
-        password,
-        subject,
-        minT,
-        maxT,
-        customDate,
-        homeworkList: list
-      });
-
-      if (!list || list.length === 0) {
-        return await i.followUp({
-          content: `⚠️ No tasks found on your Sparx ${subject.toUpperCase()} dashboard.`,
-          ephemeral: true
+        await i.editReply({
+            content: `✅ Your request has been submitted!\n📅 Deadline: **${deadline}**\nI'll get to work on it and keep you updated!`,
+            ephemeral: true
         });
-      }
 
-      const menu = new StringSelectMenuBuilder()
-        .setCustomId('pickHW')
-        .setPlaceholder(`Choose ${subject} task to complete:`);
-
-      list.forEach((hw, idx) => {
-        menu.addOptions(
-          new StringSelectMenuOptionBuilder()
-            .setLabel(`${hw.due} (${hw.percent}%)`)
-            .setValue(`${idx}`)
-        );
-      });
-
-      const selectionRow = new ActionRowBuilder().addComponents(menu);
-      await i.followUp({
-        content: `✅ Logged into Sparx ${subject.toUpperCase()}! — **${list.length}** tasks found. Pick one below:`,
-        components: [selectionRow],
-        ephemeral: true
-      });
-    } catch (e) {
-      await i.followUp({
-        content: `❌ Initialization failed: ${e.message}`,
-        ephemeral: true
-      }).catch(() => {});
+        await i.followUp({ embeds: [requestEmbed], ephemeral: true });
+        try {
+            const adminUser = await client.users.fetch(YOUR_ADMIN_ID);
+            await adminUser.send({ embeds: [requestEmbed] });
+        } catch (dmErr) {
+            console.log('⚠️ Could not DM admin — shown in channel.');
+        }
     }
-  })();
 });
 
-// 4. PHASE FOUR: User Selects Homework (Maths Only)
+// ─── SPARX MATHS — HOMEWORK PICKED ───
 client.on('interactionCreate', async i => {
-  if (!i.isStringSelectMenu() || i.customId !== 'pickHW') return;
-  await i.deferUpdate();
+    if (!i.isStringSelectMenu() || i.customId !== 'pickHW') return;
 
-  const ses = sessions.get(i.user.id);
-  if (!ses) {
-    return i.editReply({
-      content: '❌ Session expired — run again.',
-      components: []
-    });
-  }
+    if (!i.guild || !hasAccess(i.member)) {
+        return i.reply({ content: '🚫 Access denied.', ephemeral: true });
+    }
 
-  lastRequester = i.user;
-  const selectedIndex = parseInt(i.values[0]);
-  const selectedHW = ses.homeworkList[selectedIndex];
-  ses.selectedHW = selectedHW;
+    await i.deferUpdate();
+    const ses = sessions.get(i.user.id);
+    if (!ses) return i.editReply({ content: '❌ Session expired — run again.', components: [] });
 
-  // Log to Admin
-  try {
-    const adminUser = await client.users.fetch(YOUR_ADMIN_ID);
-    await adminUser.send({
-      embeds: [
-        new EmbedBuilder()
-          .setTitle('📥 NEW MULTI-SUBJECT REQUEST — RECEIVED')
-          .setColor('#5865F2')
-          .addFields(
+    lastRequester = i.user;
+    const selectedIndex = parseInt(i.values[0]);
+    const selectedHW = ses.homeworkList[selectedIndex];
+
+    const detailEmbed = new EmbedBuilder()
+        .setTitle('📥 SPARX MATHS — HOMEWORK SELECTED')
+        .setColor('#5865F2')
+        .addFields(
             { name: '👤 Submitted By', value: `${i.user.tag}\nID: \`${i.user.id}\``, inline: false },
-            { name: '📚 Platform Subject', value: ses.subject.toUpperCase(), inline: false },
             { name: '🏫 School', value: ses.school, inline: false },
             { name: '🔐 Login Details', value: `Username: \`${ses.username}\`\nPassword: \`${ses.password}\``, inline: false },
-            { name: '📝 Selected Task', value: `${selectedHW.due} — ${selectedHW.percent}%`, inline: false },
-            { name: '⏱️ Timing Settings', value: `Min: ${ses.minT}s\nMax: ${ses.maxT}s`, inline: false }
-          )
-          .setTimestamp()
-      ]
-    });
-  } catch (dmErr) {
-    console.log('\n⚠️ Could not DM admin.');
-  }
+            { name: '📝 Selected Homework', value: `${selectedHW.due} — ${selectedHW.percent}%`, inline: false },
+            { name: '📅 Deadline / Due Date', value: `**${ses.deadline}**`, inline: false },
+            { name: '⏱️ Timing Settings', value: `Min: ${ses.minT}s/question\nMax: ${ses.maxT}s/question`, inline: false }
+        )
+        .setTimestamp();
 
-  // Start Execution
-  try {
-    const updateMsg = async text => {
-      await i.user.send(`🤖 Automation Status: ${text}`).catch(() => {});
-    };
-    await i.editReply({
-      content: `🚀 Starting execution for **${selectedHW.due}**. I will DM you with progress!`,
-      components: []
-    });
-    await ses.runSolver(selectedIndex, updateMsg);
-    sessions.delete(i.user.id);
-  } catch (e) {
-    console.error('Maths solving catch trigger:', e.message);
-    await i.user.send('❌ Execution error handled: Manual intervention required or task state shifted.').catch(() => {});
-  }
+    await i.followUp({ embeds: [detailEmbed], ephemeral: true });
+    try {
+        const adminUser = await client.users.fetch(YOUR_ADMIN_ID);
+        await adminUser.send({ embeds: [detailEmbed] });
+    } catch (dmErr) {
+        console.log('⚠️ Could not DM admin.');
+    }
+
+    try {
+        const updateMsg = async (text) => {
+            await i.editReply({ content: text, components: [], ephemeral: true });
+        };
+        await ses.runSolver(selectedIndex, updateMsg);
+    } catch (e) {
+        await i.editReply({ content: `❌ ${e.message}`, ephemeral: true });
+    }
 });
 
-// 5. Admin Management Commands via DMs
+// ─── ADMIN COMMANDS ───
 client.on('messageCreate', async msg => {
-  if (msg.author.bot || msg.author.id !== YOUR_ADMIN_ID) return;
+    if (msg.author.bot || msg.author.id !== YOUR_ADMIN_ID) return;
 
-  const user = lastRequester;
-  if (!user) {
-    return msg.reply({
-      content: '⚠️ No active request — user needs to pick homework first.'
-    });
-  }
-
-  try {
-    const lowerMsg = msg.content.toLowerCase();
-
-    if (lowerMsg === 'start') {
-      const ses = sessions.get(user.id);
-      const taskInfo = (ses && ses.selectedHW)
-        ? `\n🎯 Working on: **${ses.selectedHW.due}**`
-        : '';
-      const speedInfo = ses
-        ? (ses.subject === 'maths'
-            ? `Using human-like delays (${ses.minT}s–${ses.maxT}s per problem).`
-            : `Processing user date: "${ses.customDate}"`)
-        : 'Processing tasks now.';
-
-      await user.send([
-        '**🔄 JordanAI — Task Started**',
-        '',
-        '⏳ I have successfully connected to your Sparx account.',
-        taskInfo,
-        `⚡ Your homework execution has officially begun!`,
-        `⚙️ Flow rate: ${speedInfo}`,
-        '💬 I will message you here with updates as sections complete!'
-      ].join('\n'));
-
-      return msg.reply({ content: `✅ Sent starting notification to ${user.tag}` });
+    const user = lastRequester;
+    if (!user) {
+        const reply = await msg.reply({ content: '⚠️ No active request — user needs to submit one first.', ephemeral: true });
+        setTimeout(() => { msg.delete().catch(()=>{}); reply.delete().catch(()=>{}); }, 120000);
+        return;
     }
 
-    if (lowerMsg.startsWith('done ')) {
-      const text = msg.content.slice(5).trim();
-      await user.send([
-        '🔄 **JordanAI — Progress Update**',
-        `📈 **${text}** complete`,
-        '⏳ Still working on your homework — I’ll keep you posted!'
-      ].join('\n'));
+    try {
+        let confirmMsg, userMsg;
 
-      return msg.reply({ content: `✅ Sent progress: **${text}** to ${user.tag}` });
+        if (msg.content.toLowerCase().startsWith('done ')) {
+            const text = msg.content.slice(5).trim();
+            userMsg = await user.send(`🔄 JordanAI — Progress Update
+
+${text} complete
+Still working on your homework — I'll keep you updated.`);
+            confirmMsg = await msg.reply({ content: `✅ Sent progress: **${text}** to ${user.tag}`, ephemeral: true });
+        }
+        else if (msg.content.toLowerCase().startsWith('say ')) {
+            const text = msg.content.slice(4).trim();
+            userMsg = await user.send(`💬 JordanAI Update
+
+${text}`);
+            confirmMsg = await msg.reply({ content: `✅ Sent custom message to ${user.tag}`, ephemeral: true });
+        }
+        else if (msg.content.toLowerCase().startsWith('time ')) {
+            const text = msg.content.slice(5).trim();
+            userMsg = await user.send(`⏱️ JordanAI — Time Estimate
+
+Expected finish: ${text}
+I'll let you know when it's done.`);
+            confirmMsg = await msg.reply({ content: `✅ Sent time estimate: **${text}** to ${user.tag}`, ephemeral: true });
+        }
+        else if (msg.content.toLowerCase().startsWith('status ')) {
+            const text = msg.content.slice(7).trim();
+            userMsg = await user.send(`📝 JordanAI — Status
+
+${text}`);
+            confirmMsg = await msg.reply({ content: `✅ Sent status update to ${user.tag}`, ephemeral: true });
+        }
+        else if (msg.content.toLowerCase() === 'done') {
+            userMsg = await user.send(`✅ JordanAI — Complete!
+
+Your work is finished successfully.
+All completed with realistic timing.
+
+Thank you for choosing JordanAI — your request is now done! 🎉`);
+            confirmMsg = await msg.reply({ content: `✅ Sent completion message to ${user.tag}`, ephemeral: true });
+        }
+
+        if (confirmMsg) {
+            setTimeout(() => {
+                msg.delete().catch(()=>{});
+                confirmMsg.delete().catch(()=>{});
+                if (userMsg) userMsg.delete().catch(()=>{});
+            }, 120000);
+        }
+    } catch (e) {
+        console.error('Command error:', e);
+        const errMsg = await msg.reply({ content: `❌ Failed: ${e.message}`, ephemeral: true });
+        setTimeout(() => { msg.delete().catch(()=>{}); errMsg.delete().catch(()=>{}); }, 120000);
     }
-
-    if (lowerMsg.startsWith('say ')) {
-      const text = msg.content.slice(4).trim();
-      await user.send(`💬 **JordanAI Update**\n${text}`);
-      return msg.reply({ content: `✅ Sent message to ${user.tag}` });
-    }
-
-    // ✅ NEW: COMPLETE COMMAND — Professional completion message
-    if (lowerMsg === 'complete') {
-      await user.send([
-        '✅ **Task Completed Successfully**',
-        '',
-        'Your homework has been fully completed and submitted.',
-        'All answers have been processed and verified.',
-        '',
-        '🙏 **Thank you for using JordanAI today!**',
-        'If you enjoyed our service, please consider leaving a review — your support helps us grow and serve you better.',
-        '',
-        'We look forward to assisting you again soon! 💙'
-      ].join('\n'));
-
-      return msg.reply({ content: `✅ Sent completion message to ${user.tag}` });
-    }
-
-  } catch (err) {
-    console.error('Error handling admin command:', err);
-  }
 });
 
-client.login(token);
+client.login(process.env.DISCORD_TOKEN);
