@@ -15,7 +15,6 @@ const {
 
 require('dotenv').config();
 
-// ─── CONFIG ───
 const YOUR_ADMIN_ID = '1433073407075024981';
 const MAIN_CHANNEL_ID = '1529910322184454296';
 const FAQ_CHANNEL_ID = '1517285523042078730';
@@ -35,15 +34,16 @@ const client = new Client({
   ]
 });
 
-// Requests waiting for admin updates.
 const requests = new Map();
 const pendingPlatforms = new Map();
 let lastRequesterId = null;
 
-// ─── KEEP-ALIVE FOR HOSTING ───
+// ─── OPTIONAL HOST KEEP-ALIVE ───
+const http = require('http');
+
 const PORT = process.env.PORT || 3000;
 
-require('http').createServer((req, res) => {
+http.createServer((req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/plain'
   });
@@ -55,7 +55,10 @@ require('http').createServer((req, res) => {
 // ─── ACCESS CHECK ───
 function hasAccess(member) {
   if (!member) return false;
-  if (member.id === YOUR_ADMIN_ID) return true;
+
+  if (member.id === YOUR_ADMIN_ID) {
+    return true;
+  }
 
   return member.roles?.cache?.some(role =>
     ALLOWED_ROLES.includes(role.name)
@@ -70,7 +73,6 @@ function makeBar(percent) {
     '⬜'.repeat(20 - filled);
 }
 
-// Illustrative categories, not verified task completion.
 function makeTaskBreakdown(percent) {
   const tasks = [
     'Task 1',
@@ -94,33 +96,30 @@ function makeTaskBreakdown(percent) {
 }
 
 function progressEmbed(request, percent) {
-  const complete = percent === 100;
-
   return new EmbedBuilder()
     .setTitle(
-      complete
+      percent === 100
         ? '✅ Request Complete!'
         : '📊 Progress Update'
     )
     .setColor(
-      complete ? '#57F287' : '#5865F2'
+      percent === 100 ? '#57F287' : '#5865F2'
     )
     .setDescription(
       `**Platform:** ${request.platform}\n` +
+      `**Homework:** ${request.homework}\n` +
       `**Progress:** ${percent}%\n\n` +
       `${makeBar(percent)}\n\n` +
       `**Illustrative task breakdown**\n` +
       `${makeTaskBreakdown(percent)}\n\n` +
-      '_Task categories are illustrative and do not ' +
-      'verify completed work._'
+      '_This is a manually updated progress display; ' +
+      'task completion is not independently verified._'
     )
-    .setFooter({
-      text: 'JordanAI'
-    })
+    .setFooter({ text: 'JordanAI' })
     .setTimestamp();
 }
 
-// ─── MAIN PANEL ───
+// ─── WELCOME PANEL ───
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
@@ -144,7 +143,7 @@ client.once('ready', async () => {
     );
 
     if (exists) {
-      console.log('Panel already exists.');
+      console.log('Welcome panel already exists.');
       return;
     }
 
@@ -152,17 +151,14 @@ client.once('ready', async () => {
       .setTitle('Welcome to JordanAI')
       .setColor('#5865F2')
       .setDescription(
-        'Submit a request using the button below.\n\n' +
+        'Submit a homework request using the button below.\n\n' +
         '📐 Sparx Maths\n' +
         '📖 Sparx Reader\n' +
         '🔬 Sparx Science\n' +
         '🧠 Seneca\n' +
-        '🎸 Times Table Rockstars\n\n' +
-        'Choose a platform to get started.'
+        '🎸 Times Table Rockstars'
       )
-      .setFooter({
-        text: 'JordanAI'
-      });
+      .setFooter({ text: 'JordanAI' });
 
     await channel.send({
       embeds: [panel],
@@ -184,32 +180,28 @@ client.once('ready', async () => {
       ]
     });
 
-    console.log('Request panel posted.');
+    console.log('Welcome panel posted.');
   } catch (error) {
-    console.error('Panel error:', error.message);
+    console.error('Panel error:', error);
   }
 });
 
 // ─── INTERACTIONS ───
 client.on('interactionCreate', async interaction => {
   try {
-
-    // Open the platform selector.
+    // Open platform selector.
     if (
       interaction.isButton() &&
       interaction.customId === 'startRequest'
     ) {
-      await interaction.deferReply({
-        ephemeral: true
-      });
-
       if (
         !interaction.guild ||
         !hasAccess(interaction.member)
       ) {
-        return interaction.editReply(
-          '🚫 You do not have permission to submit requests.'
-        );
+        return interaction.reply({
+          content: '🚫 You do not have permission to submit requests.',
+          ephemeral: true
+        });
       }
 
       const menu = new StringSelectMenuBuilder()
@@ -243,15 +235,16 @@ client.on('interactionCreate', async interaction => {
           }
         );
 
-      return interaction.editReply({
+      return interaction.reply({
         content: '👋 Choose your platform:',
         components: [
           new ActionRowBuilder().addComponents(menu)
-        ]
+        ],
+        ephemeral: true
       });
     }
 
-    // Display the request form.
+    // Open request form.
     if (
       interaction.isStringSelectMenu() &&
       interaction.customId === 'selectPlatform'
@@ -269,9 +262,7 @@ client.on('interactionCreate', async interaction => {
       const platform = interaction.values[0];
 
       const modal = new ModalBuilder()
-        .setCustomId(
-          `request_${interaction.user.id}`
-        )
+        .setCustomId(`request_${interaction.user.id}`)
         .setTitle(`Request: ${platform}`);
 
       modal.addComponents(
@@ -291,16 +282,16 @@ client.on('interactionCreate', async interaction => {
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
-            .setCustomId('deadline')
-            .setLabel('Deadline')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Tomorrow / next week')
+            .setCustomId('homework')
+            .setLabel('What homework?')
+            .setStyle(TextInputStyle.Paragraph)
+            .setPlaceholder('Describe the homework')
             .setRequired(true)
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('details')
-            .setLabel('Request details')
+            .setLabel('Extra details (optional)')
             .setStyle(TextInputStyle.Paragraph)
             .setRequired(false)
         )
@@ -314,23 +305,24 @@ client.on('interactionCreate', async interaction => {
       return interaction.showModal(modal);
     }
 
-    // Process a submitted form.
+    // Process submitted form.
     if (
       interaction.type === InteractionType.ModalSubmit &&
       interaction.customId.startsWith('request_')
     ) {
-      await interaction.deferReply({
-        ephemeral: true
-      });
-
       if (
         !interaction.guild ||
         !hasAccess(interaction.member)
       ) {
-        return interaction.editReply(
-          '🚫 Access denied.'
-        );
+        return interaction.reply({
+          content: '🚫 Access denied.',
+          ephemeral: true
+        });
       }
+
+      await interaction.deferReply({
+        ephemeral: true
+      });
 
       const platform = pendingPlatforms.get(
         interaction.user.id
@@ -338,7 +330,7 @@ client.on('interactionCreate', async interaction => {
 
       if (!platform) {
         return interaction.editReply(
-          '❌ Your form expired. Please start again.'
+          '❌ Your form expired. Please submit it again.'
         );
       }
 
@@ -348,34 +340,28 @@ client.on('interactionCreate', async interaction => {
         userId: interaction.user.id,
         userTag: interaction.user.tag,
         platform,
-        school: interaction.fields.getTextInputValue(
-          'school'
-        ),
+        school: interaction.fields.getTextInputValue('school'),
         username:
           interaction.fields.getTextInputValue('username') ||
           'Not provided',
-        deadline: interaction.fields.getTextInputValue(
-          'deadline'
-        ),
+        homework:
+          interaction.fields.getTextInputValue('homework'),
         details:
           interaction.fields.getTextInputValue('details') ||
-          'No additional details',
+          'None provided',
         percent: 0
       };
 
-      // Save the request for subsequent progress commands.
-      requests.set(interaction.user.id, request);
-      lastRequesterId = interaction.user.id;
+      requests.set(request.userId, request);
+      lastRequesterId = request.userId;
 
-      const adminEmbed = new EmbedBuilder()
-        .setTitle('📥 New Request')
+      const embed = new EmbedBuilder()
+        .setTitle('📥 New Homework Request')
         .setColor('#5865F2')
         .addFields(
           {
             name: 'Requester',
-            value:
-              `${request.userTag}\n` +
-              `ID: ${request.userId}`
+            value: `${request.userTag}\nID: ${request.userId}`
           },
           {
             name: 'Platform',
@@ -390,11 +376,11 @@ client.on('interactionCreate', async interaction => {
             value: request.username
           },
           {
-            name: 'Deadline',
-            value: request.deadline
+            name: 'What homework?',
+            value: request.homework
           },
           {
-            name: 'Details',
+            name: 'Extra details',
             value: request.details
           }
         )
@@ -405,26 +391,20 @@ client.on('interactionCreate', async interaction => {
           YOUR_ADMIN_ID
         );
 
-        await admin.send({
-          embeds: [adminEmbed]
-        });
+        await admin.send({ embeds: [embed] });
       } catch (error) {
-        console.error(
-          'Admin notification failed:',
-          error.message
-        );
+        console.error('Admin DM failed:', error);
 
         return interaction.editReply(
-          '⚠️ The request was saved, but I could not DM the admin. ' +
+          '⚠️ The request could not be sent to the admin. ' +
           'Please contact them directly.'
         );
       }
 
       return interaction.editReply(
-        '✅ Your request was sent successfully!'
+        '✅ Your homework request has been sent!'
       );
     }
-
   } catch (error) {
     console.error('Interaction error:', error);
 
@@ -443,16 +423,12 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
- 
-// ─── ADMIN PROGRESS COMMANDS ───
-//
+// ─── ADMIN COMMANDS ───
 // done 10
-// done 20
 // done 50
-// done 90
 // done
 // status Waiting for review
-// say Your message here
+// say Your message
 // time About two hours
 
 client.on('messageCreate', async message => {
@@ -469,9 +445,6 @@ client.on('messageCreate', async message => {
     return;
   }
 
-  const lower = content.toLowerCase();
-
-  // The latest request is the default target.
   const userId = lastRequesterId;
   const request = userId
     ? requests.get(userId)
@@ -479,21 +452,18 @@ client.on('messageCreate', async message => {
 
   if (!request) {
     return message.reply(
-      '⚠️ No active request. Ask someone to submit a form first.'
+      '⚠️ No active request found.'
     );
   }
 
   try {
-    // Mark the request complete.
-    if (lower === 'done') {
+    if (content.toLowerCase() === 'done') {
       request.percent = 100;
 
       const user = await client.users.fetch(userId);
 
       await user.send({
-        embeds: [
-          progressEmbed(request, 100)
-        ]
+        embeds: [progressEmbed(request, 100)]
       });
 
       requests.delete(userId);
@@ -502,18 +472,15 @@ client.on('messageCreate', async message => {
         lastRequesterId = null;
       }
 
-      return message.reply(
-        '✅ Completion update sent.'
-      );
+      return message.reply('✅ Completion update sent.');
     }
 
-    // Send a numeric progress update.
-    if (lower.startsWith('done ')) {
+    if (/^done\s/i.test(content)) {
       const value = content.slice(5).trim();
 
       if (!/^\d{1,3}$/.test(value)) {
         return message.reply(
-          'Usage: `done 10`, `done 50`, etc. Use `done` for completion.'
+          'Use `done 10`, `done 50`, etc. Or use `done` to finish.'
         );
       }
 
@@ -521,7 +488,7 @@ client.on('messageCreate', async message => {
 
       if (percent < 0 || percent > 100) {
         return message.reply(
-          '❌ Enter a percentage between 0 and 100.'
+          '❌ Percentage must be between 0 and 100.'
         );
       }
 
@@ -530,9 +497,7 @@ client.on('messageCreate', async message => {
       const user = await client.users.fetch(userId);
 
       await user.send({
-        embeds: [
-          progressEmbed(request, percent)
-        ]
+        embeds: [progressEmbed(request, percent)]
       });
 
       return message.reply(
@@ -540,24 +505,23 @@ client.on('messageCreate', async message => {
       );
     }
 
-    // Text updates.
     let title;
     let text;
 
-    if (lower.startsWith('status ')) {
+    if (/^status\s/i.test(content)) {
       title = '📝 Status Update';
       text = content.slice(7).trim();
-    } else if (lower.startsWith('say ')) {
-      title = '💬 Message from the Admin';
+    } else if (/^say\s/i.test(content)) {
+      title = '💬 Message from Admin';
       text = content.slice(4).trim();
-    } else if (lower.startsWith('time ')) {
+    } else if (/^time\s/i.test(content)) {
       title = '⏱️ Time Estimate';
       text = content.slice(5).trim();
     }
 
     if (!text) {
       return message.reply(
-        'Please enter a message after the command.'
+        'Add a message after the command.'
       );
     }
 
@@ -574,33 +538,22 @@ client.on('messageCreate', async message => {
     });
 
     return message.reply('✅ Update sent.');
-
   } catch (error) {
-    console.error(
-      'Admin command error:',
-      error.message
-    );
+    console.error('Admin command error:', error);
 
     return message.reply(
-      '❌ Could not send the update. The requester may have DMs disabled.'
+      '❌ Could not DM the requester. They may have DMs disabled.'
     );
   }
 });
 
-// ─── BOT LOGIN ───
+// ─── LOGIN ───
 if (!process.env.DISCORD_TOKEN) {
-  console.error(
-    '❌ Missing DISCORD_TOKEN in your .env file.'
-  );
-
+  console.error('❌ DISCORD_TOKEN is missing from .env');
   process.exit(1);
 }
 
 client.login(process.env.DISCORD_TOKEN).catch(error => {
-  console.error(
-    '❌ Discord login failed:',
-    error.message
-  );
-
+  console.error('❌ Discord login failed:', error);
   process.exit(1);
 });
