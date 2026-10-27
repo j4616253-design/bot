@@ -36,37 +36,21 @@ const pendingPlatforms = new Map();
 let lastRequesterId = null;
 
 // ─══════════════════════════════════════════─
-// 🎨 YOUR CUSTOM PROGRESS BAR — ALL SET!
+// 🎨 GREEN TEXT PROGRESS BAR — SIMPLE & CLEAN
 // ─══════════════════════════════════════════─
-const BAR = {
-  leftFull:   '<:lb2g:1564644631872929874>',   // < filled
-  leftEmpty:  '<:lbg:1564644630526435539>',    // < empty
-  midFull:    '<:lg:1564644635433771169>',     // middle filled
-  midEmpty:   '<:l2g:1564644629054230608>',    // middle empty
-  rightFull:  '<:lb4g:1564644634267750491>',   // > filled
-  rightEmpty: '<:lb3g:1564644633072504993>',   // > empty
-  segments: 5,    // number of middle blocks — change to make longer/shorter
+const BAR_CONFIG = {
+  filled: '🟩',      // Green box = completed
+  empty: '⬜',       // White box = remaining
+  length: 10,        // How many boxes wide
   showPercent: true
 };
 
 function makeBar(percent) {
-  const filledTotal = Math.round((percent / 100) * BAR.segments);
-  let bar = '';
-
-  // Left cap
-  bar += filledTotal > 0 ? BAR.leftFull : BAR.leftEmpty;
-
-  // Middle segments
-  for (let i = 1; i <= BAR.segments; i++) {
-    bar += i <= filledTotal ? BAR.midFull : BAR.midEmpty;
-  }
-
-  // Right cap
-  bar += percent >= 100 ? BAR.rightFull : BAR.rightEmpty;
-
-  // Percentage label
-  if (BAR.showPercent) bar += `  **${percent}%**`;
-
+  const filled = Math.round((percent / 100) * BAR_CONFIG.length);
+  const empty = BAR_CONFIG.length - filled;
+  
+  let bar = BAR_CONFIG.filled.repeat(filled) + BAR_CONFIG.empty.repeat(empty);
+  if (BAR_CONFIG.showPercent) bar += `  **${percent}%**`;
   return bar;
 }
 
@@ -74,7 +58,7 @@ function makeTaskBreakdown(percent) {
   const tasks = ['Task 1', 'Task 2', 'Task 3', 'Task 4', 'Task 5', 'Task 6', 'Flashcards'];
   const done = Math.round((percent / 100) * tasks.length);
   return tasks.map((task, i) =>
-    percent === 100 ? `✅ ${task}` : (i < done ? `🟦 ${task}` : `⬜ ${task}`)
+    percent === 100 ? `✅ ${task}` : (i < done ? `🟩 ${task}` : `⬜ ${task}`)
   ).join('\n');
 }
 
@@ -93,7 +77,7 @@ function progressEmbed(request, percent) {
     .setTimestamp();
 }
 
-// ─── REST OF BOT CODE ───
+// ─── REST OF BOT ───
 
 function hasAccess(member) {
   if (!member) return false;
