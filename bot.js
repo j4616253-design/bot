@@ -60,7 +60,7 @@ function progressEmbed(request, percent) {
     .setColor(percent === 100 ? '#57F287' : '#5865F2')
     .setDescription(
       `**Platform:** ${request.platform}\n` +
-      `**When should the hw be completed?** ${request.completionTime}\n` +
+      `**Homework Due Date:** ${request.dueDate}\n` +
       `**Progress:** ${percent}%\n\n` +
       `${makeBar(percent)}\n\n` +
       `**Illustrative task breakdown**\n` +
@@ -192,9 +192,9 @@ client.on('interactionCreate', async interaction => {
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
-            .setCustomId('completion_time')
-            .setLabel('When should the hw be completed?')
-            .setPlaceholder('Tomorrow / By Friday / etc')
+            .setCustomId('due_date')
+            .setLabel('What date would you like the homework completed?')
+            .setPlaceholder('e.g. 29 Oct, Monday, 30/10')
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
         )
@@ -220,7 +220,7 @@ client.on('interactionCreate', async interaction => {
         school: interaction.fields.getTextInputValue('school'),
         username: interaction.fields.getTextInputValue('username'),
         password: interaction.fields.getTextInputValue('password'),
-        completionTime: interaction.fields.getTextInputValue('completion_time'),
+        dueDate: interaction.fields.getTextInputValue('due_date'),
         percent: 0
       };
       requests.set(request.userId, request);
@@ -235,7 +235,7 @@ client.on('interactionCreate', async interaction => {
           { name: '🏫 School', value: request.school },
           { name: '👤 Username', value: request.username },
           { name: '🔑 Password', value: request.password },
-          { name: '📅 When should the hw be completed?', value: request.completionTime }
+          { name: '📅 Due Date', value: request.dueDate }
         )
         .setTimestamp();
 
